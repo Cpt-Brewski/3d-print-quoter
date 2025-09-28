@@ -1,4 +1,4 @@
-// viewer.js (esm.sh CDN versions)
+// viewer.js
 import * as THREE from 'https://esm.sh/three@0.160.0';
 import { OrbitControls } from 'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js';
 
@@ -11,7 +11,8 @@ export function initViewer(root){
   camera = new THREE.PerspectiveCamera(50, root.clientWidth/root.clientHeight, 0.1, 10000);
   camera.position.set(120,100,140);
 
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  // ⬇️ keep the drawn frame so toDataURL() returns pixels
+  renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(root.clientWidth, root.clientHeight);
   root.appendChild(renderer.domElement);
@@ -56,6 +57,7 @@ export function loadGeometryIntoScene(geomPayload){
   }
 }
 
+// Keep your existing centerAndFrame(...)
 export function centerAndFrame(bbox){
   const box = new THREE.Box3(new THREE.Vector3(bbox.min.x,bbox.min.y,bbox.min.z), new THREE.Vector3(bbox.max.x,bbox.max.y,bbox.max.z));
   const size = new THREE.Vector3(); box.getSize(size);
@@ -70,3 +72,13 @@ export function centerAndFrame(bbox){
   controls.update();
 }
 
+// ⬇️ New: safe snapshot helper (waits 1 frame to ensure pixels are drawn)
+export async function getSnapshot(){
+  if(!renderer) return '';
+  await new Promise(r => requestAnimationFrame(r));
+  try {
+    return renderer.domElement.toDataURL('image/png');
+  } catch {
+    return '';
+  }
+}
