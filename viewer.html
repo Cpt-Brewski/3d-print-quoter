@@ -31,7 +31,7 @@
     const camera = new THREE.PerspectiveCamera(50, 2, 0.1, 1000);
     camera.position.set(120, 90, 140);
 
-    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
     const light1 = new THREE.DirectionalLight(0xffffff, 1);
