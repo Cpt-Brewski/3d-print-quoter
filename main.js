@@ -11,7 +11,7 @@ let lastMetrics = null;
 let lastQuote = null;
 
 const state = {
-  unitScale: 1, // mm multiplier (reserved if you add unit switching later)
+  unitScale: 1,
   tech: 'fdm',
   layer: '0.2',
   post: 'none',
@@ -99,7 +99,6 @@ async function handleFile(file){
   const worker = new Worker('./parsers.worker.js', { type: 'module' });
 
   if(ext === 'stl'){
-    // Parse STL fully in worker
     worker.postMessage({ type:'parse', format:'stl', buffer: buf }, [buf]);
     worker.onmessage = ({ data }) => {
       if (!data.ok){
@@ -117,10 +116,8 @@ async function handleFile(file){
       recompute();
     };
   } else {
-    // 3MF must be parsed on main thread (DOMParser unavailable in workers)
     try{
       const group = new ThreeMFLoader().parse(buf);
-      // Collect parts as simple arrays
       const parts = [];
       group.traverse(n=>{
         if(n.isMesh && n.geometry && n.geometry.attributes && n.geometry.attributes.position){
@@ -132,7 +129,6 @@ async function handleFile(file){
       const geomPayload = { format:'3mf', parts };
       const bbox = bboxFromGeomPayload(geomPayload);
 
-      // Ask worker to compute metrics from the flattened payload (no DOMParser needed)
       worker.postMessage({ type:'metricsFromPayload', geomPayload });
       worker.onmessage = ({ data }) => {
         if(!data.ok){
@@ -175,14 +171,13 @@ function recompute(){
   el('#totalOut').textContent = fmt(lastQuote.total) + `  ( ${state.qty} × ${fmt(lastQuote.perUnit)} )`;
 }
 
-// Upgraded PDF layout with header, snapshot, VAT/totals
+// --- Download Quote with company details
 function downloadQuote(){
   if(!lastMetrics || !lastQuote){ alert('Upload a model first.'); return; }
 
-  // --- Gather data
   const today = new Date().toISOString().slice(0,10);
   const fileName = el('#fileName').textContent || 'model';
-  const vatRate = 0.20; // adjust if needed
+  const vatRate = 0.20;
   const subtotal = lastQuote.total;
   const vat = subtotal * vatRate;
   const grandTotal = subtotal + vat;
@@ -194,32 +189,23 @@ function downloadQuote(){
   const tech = (state.tech || '').toUpperCase();
   const hours = lastQuote.hours.toFixed(2);
 
-  // Try to capture a snapshot of the current viewer canvas
   let snap = '';
   const canvas = document.querySelector('#viewerRoot canvas');
-  try { snap = canvas ? canvas.toDataURL('image/png') : ''; } catch(e){ /* ignore */ }
+  try { snap = canvas ? canvas.toDataURL('image/png') : ''; } catch(e){}
 
-  // --- HTML template
   const html = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
 <title>Quote - ${fileName}</title>
 <style>
-  :root{
-    --ink:#0b1220; --muted:#64748b; --line:#e5e7eb;
-  }
+  :root{ --ink:#0b1220; --muted:#64748b; --line:#e5e7eb; }
   @page { size: A4; margin: 18mm; }
-  *{ box-sizing:border-box; }
-  body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-        color: var(--ink); margin: 0; }
+  body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color: var(--ink); margin: 0; }
   .wrap{ max-width: 800px; margin: 0 auto; }
-  header{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:18px; }
-  .brand{ display:flex; align-items:center; gap:12px; }
-  .logo{
-    width:32px; height:32px; border-radius:8px;
-    background: radial-gradient(circle at 30% 30%, #4cc9f0, #b5179e);
-  }
+  header{ display:flex; justify-content:space-between; gap:16px; margin-bottom:18px; }
+  .brand{ display:flex; flex-direction:column; gap:4px; }
+  .logo{ width:32px; height:32px; border-radius:8px; background: radial-gradient(circle at 30% 30%, #4cc9f0, #b5179e); }
   h1{ font-size:22px; margin:0; }
   .muted{ color: var(--muted); }
   .meta{ text-align:right; font-size:13px; }
@@ -231,16 +217,11 @@ function downloadQuote(){
   th{ background:#f8fafc; text-align:left; }
   td.qty, td.unit, td.total{ text-align:right; white-space:nowrap; }
   .totals{ width:340px; margin-left:auto; margin-top:12px; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-  .totals table{ border:none; width:100%; }
   .totals td{ border:none; padding:8px 10px; }
   .totals tr+tr td{ border-top:1px solid var(--line); }
   .grand{ font-weight:700; }
-  .snapshot{ text-align:right; }
   .snapshot img{ max-width:200px; border:1px solid var(--line); border-radius:8px; }
   footer{ margin-top:20px; font-size:12px; color:var(--muted); line-height:1.4; }
-  @media print {
-    a { color: inherit; text-decoration: none; }
-  }
 </style>
 </head>
 <body>
@@ -248,10 +229,10 @@ function downloadQuote(){
     <header>
       <div class="brand">
         <div class="logo"></div>
-        <div>
-          <h1>Instant 3D Print Quote</h1>
-          <div class="muted">Generated ${today}</div>
-        </div>
+        <div><h1>Weston Additive</h1></div>
+        <div class="muted">123 Example Street, Exampletown, EX1 2YZ, UK</div>
+        <div class="muted">VAT Reg: 0000000</div>
+        <div class="muted">Generated ${today}</div>
       </div>
       <div class="meta">
         <div><strong>Quote #</strong> Q-${Math.floor(Math.random()*899999+100000)}</div>
@@ -275,11 +256,7 @@ function downloadQuote(){
     <div class="card">
       <h3>Line items</h3>
       <table>
-        <thead>
-          <tr>
-            <th>Description</th><th class="qty">Qty</th><th class="unit">Unit</th><th class="total">Total</th>
-          </tr>
-        </thead>
+        <thead><tr><th>Description</th><th class="qty">Qty</th><th class="unit">Unit</th><th class="total">Total</th></tr></thead>
         <tbody>
           <tr>
             <td>3D print — ${fileName}</td>
@@ -289,7 +266,6 @@ function downloadQuote(){
           </tr>
         </tbody>
       </table>
-
       <div class="totals">
         <table>
           <tr><td>Subtotal</td><td style="text-align:right">${fmt(subtotal)}</td></tr>
@@ -317,8 +293,8 @@ function downloadQuote(){
     </div>
 
     <footer>
+      Weston Additive · VAT Reg: 0000000 · 123 Example Street, Exampletown, EX1 2YZ, UK  
       Prices in GBP. Estimates exclude shipping. Valid for 14 days unless otherwise stated.
-      Parts are printed per provided geometry; tolerances depend on process & orientation.
     </footer>
   </div>
   <script>
@@ -328,14 +304,12 @@ function downloadQuote(){
 </body>
 </html>`;
 
-  // --- Open and print
   const win = window.open('', '_blank');
   if(!win){ alert('Popup blocked. Please allow popups to print the quote.'); return; }
   win.document.open(); win.document.write(html); win.document.close(); win.focus();
 }
 
-// Viewer init + resize
+// Viewer init
 initViewer(document.getElementById('viewerRoot'));
 new ResizeObserver(()=> setSize()).observe(document.getElementById('viewerRoot'));
-
 bindUI();
