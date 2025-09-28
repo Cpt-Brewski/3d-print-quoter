@@ -1,5 +1,5 @@
 // main.js
-import { initViewer, loadGeometryIntoScene, centerAndFrame, setSize } from './viewer.js';
+import { initViewer, loadGeometryIntoScene, centerAndFrame, setSize, getSnapshot } from './viewer.js';
 import { price } from './pricing.js';
 import { formatMetrics } from './metrics.js';
 import { ThreeMFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/3MFLoader.js';
@@ -389,7 +389,7 @@ function injectModalStyles(){
 
 
 /* ------------------------ PDF BUILDER ------------------------ */
-function openQuotePdf(){
+async function openQuotePdf(){
   const today = new Date().toISOString().slice(0,10);
   const fileName = document.querySelector('#fileName').textContent || 'model';
 
@@ -412,9 +412,7 @@ function openQuotePdf(){
   const tech = (state.tech || '').toUpperCase();
   const hours = lastQuote.hours.toFixed(2);
 
-  let snap = '';
-  const canvas = document.querySelector('#viewerRoot canvas');
-  try { snap = canvas ? canvas.toDataURL('image/png') : ''; } catch(e){}
+  const snap = await getSnapshot();
 
   const c = state.customer || {};
   const billToLines = [
