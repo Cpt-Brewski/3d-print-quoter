@@ -284,13 +284,23 @@
 
     // Reset
     el('resetBtn').addEventListener('click', () => {
-      document.querySelector('form')?.reset();
+      el('customerName').value = '';
+      el('customerEmail').value = '';
+      el('notes').value = '';
+      el('printType').value = 'fdm';
+      el('layerHeight').value = '0.2';
+      el('infill').value = '20';
+      el('quantity').value = '1';
+      el('qtyLabel').textContent = '1';
+      el('turnaround').value = 'standard';
+      el('postProcess').value = 'none';
       el('fileInput').value = '';
       el('fileInfo').textContent = 'No file selected.';
       stopCountdown('');
       el('parseStatus').textContent = '';
       latestMetrics = null;
-      ['estVolume','estArea','estBBox','estTime','baseCost','postCost','rushCost','totalEach','totalAll'].forEach(id => el(id).textContent = '–');
+      ['estVolume','estArea','estBBox','estTime','baseCost','postCost','rushCost','totalEach','totalAll']
+        .forEach(id => el(id).textContent = '–');
       viewerIframe.src = 'viewer.html';
       viewerReady = false;
       pendingModel = null;
