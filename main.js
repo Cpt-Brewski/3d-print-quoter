@@ -217,14 +217,13 @@ function saveCustomerToStorage(){
  * or resolves early if the modal is cancelled.
  */
 function showCustomerModal(){
-  // build modal elements
-  const modal = document.createElement('div');
-  modal.id = 'customerModal';
-  modal.innerHTML = `
-    <div class="wa-backdrop"></div>
-    <div class="wa-modal">
+  // overlay + dialog
+  const overlay = document.createElement('div');
+  overlay.className = 'wa-overlay';
+  overlay.innerHTML = `
+    <div class="wa-dialog" role="dialog" aria-modal="true" aria-labelledby="waTitle">
       <div class="wa-header">
-        <h2>Customer details</h2>
+        <h2 id="waTitle">Customer details</h2>
         <button class="wa-close" aria-label="Close">&times;</button>
       </div>
       <div class="wa-body">
@@ -275,11 +274,12 @@ function showCustomerModal(){
       </div>
     </div>
   `;
-  injectModalStyles();
-  document.body.appendChild(modal);
 
-  // Prefill values from state
-  const q = s => modal.querySelector(s);
+  injectModalStyles();
+  document.body.appendChild(overlay);
+
+  // Prefill
+  const q = s => overlay.querySelector(s);
   q('#waName').value = state.customer.name || '';
   q('#waCompany').value = state.customer.company || '';
   q('#waEmail').value = state.customer.email || '';
@@ -289,17 +289,17 @@ function showCustomerModal(){
   q('#waCountry').value = state.customer.country || 'UK';
   q('#waSave').checked = !!state.saveCustomer;
 
-  // Wire interactions
-  const close = () => { modal.remove(); };
+  // Wire up
+  const close = () => overlay.remove();
   q('.wa-close').addEventListener('click', close);
   q('#waCancel').addEventListener('click', close);
-  q('.wa-backdrop').addEventListener('click', close);
+  overlay.addEventListener('click', (e)=>{ if(e.target === overlay) close(); });
   q('#waClear').addEventListener('click', ()=>{
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem('wa_customer_v1');
     alert('Saved customer details cleared from this device.');
   });
 
-  // Update state as user types (and optionally persist)
+  // live-update state + optional save
   [
     ['#waName','name'],
     ['#waCompany','company'],
@@ -311,28 +311,28 @@ function showCustomerModal(){
   ].forEach(([sel, key])=>{
     q(sel).addEventListener('input', e=>{
       state.customer[key] = e.target.value.trim();
-      if(state.saveCustomer){ saveCustomerToStorage(); }
+      if(state.saveCustomer) saveCustomerToStorage();
     });
   });
   q('#waSave').addEventListener('change', e=>{
     state.saveCustomer = !!e.target.checked;
-    if(state.saveCustomer) saveCustomerToStorage(); else localStorage.removeItem(STORAGE_KEY);
+    if(state.saveCustomer) saveCustomerToStorage(); else localStorage.removeItem('wa_customer_v1');
   });
 
-  // Continue => validate (soft), save if enabled, then build + open PDF
+  // Continue to PDF
   q('#waContinue').addEventListener('click', ()=>{
-    // minimal friendly validation
     if(!state.customer.name){
       if(!confirm('Customer name is empty. Continue anyway?')) return;
     }
     if(state.saveCustomer) saveCustomerToStorage();
     close();
-    openQuotePdf(); // generate PDF after modal closes
+    openQuotePdf();
   });
 
-  // focus first field
+  // focus first input
   setTimeout(()=> q('#waName').focus(), 0);
 }
+
 
 /* Modal styles (scoped) */
 function injectModalStyles(){
@@ -340,39 +340,21 @@ function injectModalStyles(){
   const style = document.createElement('style');
   style.id = 'wa-modal-style';
   style.textContent = `
-  .wa-backdrop{
-    position:fixed; inset:0; background:rgba(10,13,18,.55); backdrop-filter:blur(2px);
-    z-index:1000;
+  .wa-overlay{
+    position:fixed; inset:0;
+    background:rgba(10,13,18,.55);
+    backdrop-filter:blur(2px);
+    z-index:9999;
+    display:flex; align-items:center; justify-content:center;
   }
-  .wa-modal{
-    position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:1001;
-    pointer-events:none;
-  }
-  .wa-modal > .wa-header, .wa-modal > .wa-body, .wa-modal > .wa-footer { pointer-events:auto; }
-  .wa-modal > .wa-header{ display:none } /* not used directly */
-  .wa-modal > .wa-body{ display:none }   /* not used directly */
-  .wa-modal > .wa-footer{ display:none } /* not used directly */
-  .wa-modal > .wa-container{ pointer-events:auto }
-  .wa-modal .wa-modal{
-    pointer-events:auto;
-  }
-  .wa-modal > .wa-modal { display:none } /* suppress */
-  .wa-modal > .wa-modal * { pointer-events:auto }
-
-  .wa-modal .wa-modal, .wa-modal .wa-card { pointer-events:auto }
-  .wa-modal .wa-modal .wa-card { pointer-events:auto }
-
-  .wa-modal > .wa-modal { display:flex }
-
-  .wa-modal .wa-modal{
-    width: min(680px, calc(100% - 32px));
-    background: #0e151d;
-    color: #e8eef4;
+  .wa-dialog{
+    width:min(700px, calc(100% - 32px));
+    background:#0e151d;
+    color:#e8eef4;
     border:1px solid #232a34;
     border-radius:16px;
-    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    box-shadow:0 10px 30px rgba(0,0,0,.5);
     display:flex; flex-direction:column;
-    pointer-events:auto;
   }
   .wa-header{
     display:flex; align-items:center; justify-content:space-between; gap:8px;
@@ -386,12 +368,15 @@ function injectModalStyles(){
   .wa-grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .wa-field label{ display:block; font-size:12px; color:#9aa5b1; margin-bottom:6px; }
   .wa-field input{
-    width:100%; padding:10px 12px; border-radius:12px; border:1px solid #232a34; background:#0f141b; color:#e8eef4;
+    width:100%; padding:10px 12px; border-radius:12px;
+    border:1px solid #232a34; background:#0f141b; color:#e8eef4;
   }
   .wa-row{ display:flex; align-items:center; justify-content:space-between; margin-top:8px; }
   .wa-check{ display:flex; align-items:center; gap:8px; font-size:14px; color:#e8eef4; }
   .wa-link{ background:transparent; border:none; color:#4cc9f0; cursor:pointer; padding:4px 0; }
-  .wa-footer{ padding:14px 16px; border-top:1px solid #232a34; display:flex; gap:8px; justify-content:flex-end; }
+  .wa-footer{
+    padding:14px 16px; border-top:1px solid #232a34; display:flex; gap:8px; justify-content:flex-end;
+  }
   .wa-btn{
     border:1px solid #232a34; border-radius:12px; padding:10px 14px; cursor:pointer; font-weight:600;
   }
@@ -401,6 +386,7 @@ function injectModalStyles(){
   `;
   document.head.appendChild(style);
 }
+
 
 /* ------------------------ PDF BUILDER ------------------------ */
 function openQuotePdf(){
