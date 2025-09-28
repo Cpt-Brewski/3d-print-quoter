@@ -1,7 +1,4 @@
 // parsers.worker.js
-// Worker still used when available; computes metrics & parses STL.
-// In sandboxed embeds where workers are blocked, main thread will fallback.
-
 import * as THREE from 'https://esm.sh/three@0.160.0';
 import { STLLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/STLLoader.js';
 
@@ -70,8 +67,10 @@ function metricsFromPayload(geomPayload){
 
 self.onmessage = async ({ data }) => {
   try{
-    if(data.type === 'parseSTL'){
-      const geom = new STLLoader().parse(data.buffer);
+    if(data.type === 'parse'){
+      const { format, buffer } = data;
+      if(format !== 'stl') throw new Error('Only STL parsed in worker; 3MF parsed on main');
+      const geom = new STLLoader().parse(buffer);
       const metrics = metricsFromGeometry(geom);
       const box = new THREE.Box3().setFromObject(new THREE.Mesh(geom));
       const bbox = { min:{x:box.min.x,y:box.min.y,z:box.min.z}, max:{x:box.max.x,y:box.max.y,z:box.max.z} };
