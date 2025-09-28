@@ -17,10 +17,19 @@ const state = {
   post: 'none',
   turnaround: 'standard',
   qty: 1,
-  infillPct: 20
+  infillPct: 20,
+  customer: {
+    name: '',
+    company: '',
+    email: '',
+    address: '',
+    city: '',
+    postcode: '',
+    country: 'UK'
+  }
 };
 
-// UI bindings
+// ----- UI bindings
 function bindUI(){
   ['techSel','layerSel','postSel','turnSel','qtyInput','infillInput'].forEach(id=>{
     el('#'+id).addEventListener('input', onUIChange);
@@ -39,6 +48,54 @@ function bindUI(){
   el('#fileInput').addEventListener('change', e=>{
     const f = e.target.files[0];
     if(f) handleFile(f);
+  });
+
+  injectCustomerForm();
+}
+
+// Inject a simple "Customer details" form into the left panel
+function injectCustomerForm(){
+  const leftPanel = document.querySelector('.panel.left');
+  if(!leftPanel) return;
+
+  const container = document.createElement('div');
+  container.className = 'customer-block';
+  container.style.marginTop = '14px';
+  container.innerHTML = `
+    <h3 style="margin:10px 0; font-size:14px; color:var(--muted);">Customer details</h3>
+    <div class="field"><label>Customer name</label><input id="custName" type="text" placeholder="Jane Doe" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+    <div class="grid-2">
+      <div class="field"><label>Company (optional)</label><input id="custCompany" type="text" placeholder="Client Ltd" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+      <div class="field"><label>Email</label><input id="custEmail" type="email" placeholder="jane@example.com" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+    </div>
+    <div class="field"><label>Address</label><input id="custAddress" type="text" placeholder="10 Sample Road" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+    <div class="grid-2">
+      <div class="field"><label>City</label><input id="custCity" type="text" placeholder="Bristol" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+      <div class="field"><label>Postcode</label><input id="custPostcode" type="text" placeholder="BS1 1AA" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+    </div>
+    <div class="field"><label>Country</label><input id="custCountry" type="text" value="UK" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+  `;
+  // Insert before the metrics block for visibility
+  const metricsBlock = leftPanel.querySelector('.metrics');
+  leftPanel.insertBefore(container, metricsBlock || null);
+
+  // Bind inputs
+  const map = {
+    '#custName': 'name',
+    '#custCompany': 'company',
+    '#custEmail': 'email',
+    '#custAddress': 'address',
+    '#custCity': 'city',
+    '#custPostcode': 'postcode',
+    '#custCountry': 'country'
+  };
+  Object.entries(map).forEach(([selector, key])=>{
+    const input = container.querySelector(selector);
+    if(input){
+      input.addEventListener('input', ()=> {
+        state.customer[key] = input.value.trim();
+      });
+    }
   });
 }
 
@@ -59,6 +116,11 @@ function resetAll(){
   el('#statusText').textContent = 'Upload a model to preview & quote.';
   ['#volOut','#areaOut','#bboxOut','#materialOut','#machineOut','#setupOut','#finishOut','#turnOut','#hoursOut','#totalOut']
     .forEach(sel=> el(sel).textContent = '—');
+
+  // Reset customer details visually too
+  const ids = ['#custName','#custCompany','#custEmail','#custAddress','#custCity','#custPostcode','#custCountry'];
+  ids.forEach(id=>{ const i = el(id); if(i) i.value = (id==='#custCountry' ? 'UK' : ''); });
+  state.customer = { name:'', company:'', email:'', address:'', city:'', postcode:'', country:'UK' };
 }
 
 function countdown(seconds=3){
@@ -171,16 +233,29 @@ function recompute(){
   el('#totalOut').textContent = fmt(lastQuote.total) + `  ( ${state.qty} × ${fmt(lastQuote.perUnit)} )`;
 }
 
-// --- Download Quote with company details
+// ----- Download Quote with company + customer details
 function downloadQuote(){
   if(!lastMetrics || !lastQuote){ alert('Upload a model first.'); return; }
 
+  // Basic nudge if name/email missing (non-blocking)
+  if(!state.customer.name) { state.customer.name = prompt('Customer name (for the quote):', state.customer.name || '') || state.customer.name; }
+  if(!state.customer.email) { state.customer.email = prompt('Customer email (optional):', state.customer.email || '') || state.customer.email; }
+
   const today = new Date().toISOString().slice(0,10);
   const fileName = el('#fileName').textContent || 'model';
+
+  // Company details
+  const company = {
+    name: 'Weston Additive',
+    vat: '0000000',
+    address: '123 Example Street, Exampletown, EX1 2YZ, UK'
+  };
+
   const vatRate = 0.20;
   const subtotal = lastQuote.total;
   const vat = subtotal * vatRate;
   const grandTotal = subtotal + vat;
+
   const geom = {
     volume: formatMetrics({ volume_mm3: lastMetrics.volume_mm3 }).volume,
     area: formatMetrics({ area_mm2: lastMetrics.area_mm2 }).area,
@@ -189,9 +264,20 @@ function downloadQuote(){
   const tech = (state.tech || '').toUpperCase();
   const hours = lastQuote.hours.toFixed(2);
 
+  // Viewer snapshot
   let snap = '';
   const canvas = document.querySelector('#viewerRoot canvas');
   try { snap = canvas ? canvas.toDataURL('image/png') : ''; } catch(e){}
+
+  // Compose customer address block
+  const c = state.customer;
+  const billToLines = [
+    c.name || '',
+    c.company || '',
+    c.address || '',
+    [c.city, c.postcode].filter(Boolean).join(' ') || '',
+    c.country || ''
+  ].filter(Boolean).join('<br>');
 
   const html = `<!doctype html>
 <html>
@@ -229,9 +315,9 @@ function downloadQuote(){
     <header>
       <div class="brand">
         <div class="logo"></div>
-        <div><h1>Weston Additive</h1></div>
-        <div class="muted">123 Example Street, Exampletown, EX1 2YZ, UK</div>
-        <div class="muted">VAT Reg: 0000000</div>
+        <div><h1>${company.name}</h1></div>
+        <div class="muted">${company.address}</div>
+        <div class="muted">VAT Reg: ${company.vat}</div>
         <div class="muted">Generated ${today}</div>
       </div>
       <div class="meta">
@@ -243,13 +329,27 @@ function downloadQuote(){
 
     <div class="grid">
       <div class="card">
-        <h3>Part</h3>
-        <div><strong>${fileName}</strong></div>
-        <div class="muted">Layer: ${state.layer} mm · Turnaround: ${state.turnaround.toUpperCase()} · Post: ${state.post}</div>
+        <h3>Bill To</h3>
+        <div>${billToLines || '<span class="muted">No customer details provided</span>'}</div>
+        ${c.email ? `<div class="muted" style="margin-top:6px">Email: ${c.email}</div>` : ''}
       </div>
       <div class="card snapshot">
         <h3>Preview</h3>
         ${snap ? `<img src="${snap}" alt="Model preview">` : `<div class="muted">No preview available</div>`}
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>Part</h3>
+        <div><strong>${fileName}</strong></div>
+        <div class="muted">Layer: ${state.layer} mm · Turnaround: ${state.turnaround.toUpperCase()} · Post: ${state.post}</div>
+      </div>
+      <div class="card">
+        <h3>Geometry</h3>
+        <div>Volume: <strong>${geom.volume}</strong></div>
+        <div>Surface area: <strong>${geom.area}</strong></div>
+        <div>Bounding box: <strong>${geom.bbox}</strong></div>
       </div>
     </div>
 
@@ -275,25 +375,8 @@ function downloadQuote(){
       </div>
     </div>
 
-    <div class="grid">
-      <div class="card">
-        <h3>Geometry</h3>
-        <div>Volume: <strong>${geom.volume}</strong></div>
-        <div>Surface area: <strong>${geom.area}</strong></div>
-        <div>Bounding box: <strong>${geom.bbox}</strong></div>
-      </div>
-      <div class="card">
-        <h3>Breakdown</h3>
-        <div>Material: <strong>${fmt(lastQuote.material)}</strong></div>
-        <div>Machine time: <strong>${fmt(lastQuote.machine)}</strong></div>
-        <div>Setup: <strong>${fmt(lastQuote.setup)}</strong></div>
-        <div>Finishing: <strong>${fmt(lastQuote.finishing)}</strong></div>
-        <div>Turnaround: <strong>${state.turnaround.toUpperCase()}</strong></div>
-      </div>
-    </div>
-
     <footer>
-      Weston Additive · VAT Reg: 0000000 · 123 Example Street, Exampletown, EX1 2YZ, UK  
+      ${company.name} · VAT Reg: ${company.vat} · ${company.address}<br>
       Prices in GBP. Estimates exclude shipping. Valid for 14 days unless otherwise stated.
     </footer>
   </div>
@@ -309,7 +392,8 @@ function downloadQuote(){
   win.document.open(); win.document.write(html); win.document.close(); win.focus();
 }
 
-// Viewer init
+// Viewer init + resize
 initViewer(document.getElementById('viewerRoot'));
 new ResizeObserver(()=> setSize()).observe(document.getElementById('viewerRoot'));
+
 bindUI();
