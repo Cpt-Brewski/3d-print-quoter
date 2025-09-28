@@ -69,3 +69,4 @@ export function centerAndFrame(bbox){
   controls.target.set(0,0,0);
   controls.update();
 }
+
