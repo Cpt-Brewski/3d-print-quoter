@@ -391,7 +391,7 @@ function injectModalStyles(){
 /* ------------------------ PDF BUILDER ------------------------ */
 function openQuotePdf(){
   const today = new Date().toISOString().slice(0,10);
-  const fileName = el('#fileName').textContent || 'model';
+  const fileName = document.querySelector('#fileName').textContent || 'model';
 
   const company = {
     name: 'Weston Additive',
@@ -416,7 +416,7 @@ function openQuotePdf(){
   const canvas = document.querySelector('#viewerRoot canvas');
   try { snap = canvas ? canvas.toDataURL('image/png') : ''; } catch(e){}
 
-  const c = state.customer;
+  const c = state.customer || {};
   const billToLines = [
     c.name || '',
     c.company || '',
@@ -425,6 +425,7 @@ function openQuotePdf(){
     c.country || ''
   ].filter(Boolean).join('<br>');
 
+  // IMPORTANT: no auto window.print() script inside this HTML
   const html = `<!doctype html>
 <html>
 <head>
@@ -433,13 +434,13 @@ function openQuotePdf(){
 <style>
   :root{ --ink:#0b1220; --muted:#64748b; --line:#e5e7eb; }
   @page { size: A4; margin: 18mm; }
-  body{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; color: var(--ink); margin: 0; }
-  .wrap{ max-width: 800px; margin: 0 auto; }
+  body{ font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; color:var(--ink); margin:0; }
+  .wrap{ max-width:800px; margin:0 auto; }
   header{ display:flex; justify-content:space-between; gap:16px; margin-bottom:18px; }
   .brand{ display:flex; flex-direction:column; gap:4px; }
   .logo{ width:32px; height:32px; border-radius:8px; background: radial-gradient(circle at 30% 30%, #4cc9f0, #b5179e); }
   h1{ font-size:22px; margin:0; }
-  .muted{ color: var(--muted); }
+  .muted{ color:var(--muted); }
   .meta{ text-align:right; font-size:13px; }
   .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0 6px; }
   .card{ border:1px solid var(--line); border-radius:12px; padding:12px; }
@@ -526,16 +527,39 @@ function openQuotePdf(){
       Prices in GBP. Estimates exclude shipping. Valid for 14 days unless otherwise stated.
     </footer>
   </div>
-  <script>
-    try { window.print(); } catch(e) {}
-    window.addEventListener('afterprint', () => { try { window.close(); } catch(e){} });
-  </script>
 </body>
 </html>`;
 
-  const win = window.open('', '_blank');
-  if(!win){ alert('Popup blocked. Please allow popups to print the quote.'); return; }
-  win.document.open(); win.document.write(html); win.document.close(); win.focus();
+  // Print via hidden iframe (reliable across browsers)
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  document.body.appendChild(iframe);
+
+  iframe.onload = () => {
+    try {
+      // In some browsers, waiting a tick ensures layout is ready before printing
+      setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+      }, 50);
+    } finally {
+      // cleanup
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+        iframe.remove();
+      }, 1000);
+    }
+  };
+
+  iframe.src = url;
 }
 
 /* ------------------------ INIT ------------------------ */
