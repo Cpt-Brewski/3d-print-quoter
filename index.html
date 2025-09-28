@@ -353,6 +353,30 @@
 
     let latestMetrics = null; // from iframe
 
+    // Countdown timer for parsing/loading
+    let countdownInterval = null;
+    function startCountdown(seconds = 10) {
+      // Clear any existing countdown
+      if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+      const end = Date.now() + seconds * 1000;
+      const tick = () => {
+        const remaining = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+        el('parseStatus').textContent = `Parsing model… ${remaining}s`;
+        if (remaining <= 0) {
+          clearInterval(countdownInterval);
+          countdownInterval = null;
+          // If it takes longer than the countdown, keep an active message
+          el('parseStatus').textContent = 'Parsing model… (taking a bit longer)';
+        }
+      };
+      tick();
+      countdownInterval = setInterval(tick, 200);
+    }
+    function stopCountdown(finalText) {
+      if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+      if (typeof finalText === 'string') el('parseStatus').textContent = finalText;
+    }
+
     // Handle file upload → read as ArrayBuffer → postMessage to iframe
     el('fileInput').addEventListener('change', async (e) => {
       const f = e.target.files && e.target.files[0];
@@ -363,6 +387,8 @@
       el('parseStatus').textContent = 'Uploading to viewer…';
       const buf = await f.arrayBuffer();
       viewerIframe.contentWindow.postMessage({ type: 'loadModel', arrayBuffer: buf, filename: f.name }, '*');
+      // Start a countdown while the viewer parses the model
+      startCountdown(12);
     });
 
     // Receive metrics from iframe and compute quote
@@ -370,7 +396,7 @@
       const msg = e.data || {};
       if (msg.type === 'metrics') {
         latestMetrics = msg;
-        el('parseStatus').textContent = 'Model parsed.';
+        stopCountdown('Model parsed.');
         const bbox = msg.bbox; // in model units (assume mm)
         const volume_mm3 = msg.volume_mm3;
         const area_mm2 = msg.area_mm2;
@@ -384,7 +410,7 @@
         // Meta
         el('modelMeta').textContent = `${msg.filename}`;
       } else if (msg.type === 'error') {
-        el('parseStatus').textContent = 'Viewer error: ' + msg.message;
+        stopCountdown('Viewer error: ' + msg.message);
       }
     });
 
@@ -430,6 +456,7 @@
       document.querySelector('form')?.reset();
       el('fileInput').value = '';
       el('fileInfo').textContent = 'No file selected.';
+      stopCountdown('');
       el('parseStatus').textContent = '';
       latestMetrics = null;
       ['estVolume','estArea','estBBox','estTime','baseCost','postCost','rushCost','totalEach','totalAll'].forEach(id => el(id).textContent = '–');
