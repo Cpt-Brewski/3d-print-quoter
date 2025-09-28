@@ -28,6 +28,7 @@ function bindUI(){
   });
   el('#resetBtn').addEventListener('click', resetAll);
   el('#downloadQuoteBtn').addEventListener('click', downloadQuote);
+  el('#fitBtn').addEventListener('click', fitToView);
 
   const dropZone = el('#dropZone');
   ['dragenter','dragover'].forEach(t=> dropZone.addEventListener(t, e=>{ e.preventDefault(); dropZone.classList.add('dragover'); }));
