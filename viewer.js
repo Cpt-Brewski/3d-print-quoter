@@ -69,22 +69,3 @@ export function centerAndFrame(bbox){
   controls.target.set(0,0,0);
   controls.update();
 }
-export function fitToView(){
-  const box = new THREE.Box3().setFromObject(modelGroup);
-  if (!isFinite(box.min.x)) return; // nothing loaded
-
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const center = new THREE.Vector3();
-  box.getCenter(center);
-
-  modelGroup.position.sub(center); // re-center
-
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const fov = camera.fov * (Math.PI/180);
-  const dist = (maxDim/2) / Math.tan(fov/2) * 1.8;
-
-  camera.position.set(dist, dist*0.75, dist);
-  controls.target.set(0,0,0);
-  controls.update();
-}
