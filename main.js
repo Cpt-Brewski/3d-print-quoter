@@ -7,8 +7,11 @@ import { ThreeMFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders
 const el = sel => document.querySelector(sel);
 const fmt = n => `£${Number(n).toFixed(2)}`;
 
+const STORAGE_KEY = 'wa_customer_v1';
+
 let lastMetrics = null;
 let lastQuote = null;
+let customerInputs = {}; // refs to inputs after injection
 
 const state = {
   unitScale: 1,
@@ -18,6 +21,7 @@ const state = {
   turnaround: 'standard',
   qty: 1,
   infillPct: 20,
+  saveCustomer: true,
   customer: {
     name: '',
     company: '',
@@ -29,7 +33,7 @@ const state = {
   }
 };
 
-// ----- UI bindings
+// UI bindings
 function bindUI(){
   ['techSel','layerSel','postSel','turnSel','qtyInput','infillInput'].forEach(id=>{
     el('#'+id).addEventListener('input', onUIChange);
@@ -51,52 +55,8 @@ function bindUI(){
   });
 
   injectCustomerForm();
-}
-
-// Inject a simple "Customer details" form into the left panel
-function injectCustomerForm(){
-  const leftPanel = document.querySelector('.panel.left');
-  if(!leftPanel) return;
-
-  const container = document.createElement('div');
-  container.className = 'customer-block';
-  container.style.marginTop = '14px';
-  container.innerHTML = `
-    <h3 style="margin:10px 0; font-size:14px; color:var(--muted);">Customer details</h3>
-    <div class="field"><label>Customer name</label><input id="custName" type="text" placeholder="Jane Doe" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-    <div class="grid-2">
-      <div class="field"><label>Company (optional)</label><input id="custCompany" type="text" placeholder="Client Ltd" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-      <div class="field"><label>Email</label><input id="custEmail" type="email" placeholder="jane@example.com" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-    </div>
-    <div class="field"><label>Address</label><input id="custAddress" type="text" placeholder="10 Sample Road" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-    <div class="grid-2">
-      <div class="field"><label>City</label><input id="custCity" type="text" placeholder="Bristol" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-      <div class="field"><label>Postcode</label><input id="custPostcode" type="text" placeholder="BS1 1AA" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-    </div>
-    <div class="field"><label>Country</label><input id="custCountry" type="text" value="UK" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-  `;
-  // Insert before the metrics block for visibility
-  const metricsBlock = leftPanel.querySelector('.metrics');
-  leftPanel.insertBefore(container, metricsBlock || null);
-
-  // Bind inputs
-  const map = {
-    '#custName': 'name',
-    '#custCompany': 'company',
-    '#custEmail': 'email',
-    '#custAddress': 'address',
-    '#custCity': 'city',
-    '#custPostcode': 'postcode',
-    '#custCountry': 'country'
-  };
-  Object.entries(map).forEach(([selector, key])=>{
-    const input = container.querySelector(selector);
-    if(input){
-      input.addEventListener('input', ()=> {
-        state.customer[key] = input.value.trim();
-      });
-    }
-  });
+  loadCustomerFromStorage(); // populate state + inputs if saved
+  applyCustomerToInputs();   // reflect loaded values in UI
 }
 
 function onUIChange(){
@@ -117,10 +77,9 @@ function resetAll(){
   ['#volOut','#areaOut','#bboxOut','#materialOut','#machineOut','#setupOut','#finishOut','#turnOut','#hoursOut','#totalOut']
     .forEach(sel=> el(sel).textContent = '—');
 
-  // Reset customer details visually too
-  const ids = ['#custName','#custCompany','#custEmail','#custAddress','#custCity','#custPostcode','#custCountry'];
-  ids.forEach(id=>{ const i = el(id); if(i) i.value = (id==='#custCountry' ? 'UK' : ''); });
+  // reset customer inputs (does not clear saved storage)
   state.customer = { name:'', company:'', email:'', address:'', city:'', postcode:'', country:'UK' };
+  applyCustomerToInputs();
 }
 
 function countdown(seconds=3){
@@ -129,10 +88,7 @@ function countdown(seconds=3){
   const timer = setInterval(()=>{
     rem--;
     cd.textContent = rem;
-    if(rem<=0){
-      clearInterval(timer);
-      cd.style.display = 'none';
-    }
+    if(rem<=0){ clearInterval(timer); cd.style.display = 'none'; }
   }, 1000);
 }
 
@@ -171,7 +127,6 @@ async function handleFile(file){
       const { bbox, metrics, geomPayload } = data.result;
       lastMetrics = { ...metrics, bbox };
       el('#statusText').textContent = 'Model loaded. Metrics computed.';
-
       loadGeometryIntoScene(geomPayload);
       centerAndFrame(bbox);
       updateMetricsUI();
@@ -200,7 +155,6 @@ async function handleFile(file){
         }
         lastMetrics = { ...data.result.metrics, bbox };
         el('#statusText').textContent = 'Model loaded. Metrics computed.';
-
         loadGeometryIntoScene(geomPayload);
         centerAndFrame(bbox);
         updateMetricsUI();
@@ -233,18 +187,131 @@ function recompute(){
   el('#totalOut').textContent = fmt(lastQuote.total) + `  ( ${state.qty} × ${fmt(lastQuote.perUnit)} )`;
 }
 
-// ----- Download Quote with company + customer details
+// ---- Customer form (with save)
+function injectCustomerForm(){
+  const leftPanel = document.querySelector('.panel.left');
+  if(!leftPanel) return;
+
+  const container = document.createElement('div');
+  container.className = 'customer-block';
+  container.style.marginTop = '14px';
+  container.innerHTML = `
+    <h3 style="margin:10px 0; font-size:14px; color:var(--muted);">Customer details</h3>
+    <div class="field"><label>Customer name</label><input id="custName" type="text" placeholder="Jane Doe" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+    <div class="grid-2">
+      <div class="field"><label>Company (optional)</label><input id="custCompany" type="text" placeholder="Client Ltd" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+      <div class="field"><label>Email</label><input id="custEmail" type="email" placeholder="jane@example.com" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+    </div>
+    <div class="field"><label>Address</label><input id="custAddress" type="text" placeholder="10 Sample Road" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+    <div class="grid-2">
+      <div class="field"><label>City</label><input id="custCity" type="text" placeholder="Bristol" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+      <div class="field"><label>Postcode</label><input id="custPostcode" type="text" placeholder="BS1 1AA" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+    </div>
+    <div class="grid-2" style="align-items:center">
+      <label class="field" style="display:flex;gap:8px;align-items:center;margin:0">
+        <input id="custSave" type="checkbox" checked style="accent-color:#4cc9f0"> <span>Save customer on this device</span>
+      </label>
+      <div style="text-align:right">
+        <button id="custClear" class="btn" type="button" style="padding:6px 10px;border-radius:10px">Clear saved</button>
+      </div>
+    </div>
+    <div class="field"><label>Country</label><input id="custCountry" type="text" value="UK" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
+  `;
+  const metricsBlock = leftPanel.querySelector('.metrics');
+  leftPanel.insertBefore(container, metricsBlock || null);
+
+  // cache inputs
+  customerInputs = {
+    name: container.querySelector('#custName'),
+    company: container.querySelector('#custCompany'),
+    email: container.querySelector('#custEmail'),
+    address: container.querySelector('#custAddress'),
+    city: container.querySelector('#custCity'),
+    postcode: container.querySelector('#custPostcode'),
+    country: container.querySelector('#custCountry'),
+    save: container.querySelector('#custSave'),
+    clear: container.querySelector('#custClear')
+  };
+
+  // bind
+  Object.entries({
+    name:'name', company:'company', email:'email', address:'address', city:'city', postcode:'postcode', country:'country'
+  }).forEach(([k, key])=>{
+    const input = customerInputs[k];
+    if(input){
+      input.addEventListener('input', ()=>{
+        state.customer[key] = input.value.trim();
+        maybeSaveCustomer();
+      });
+    }
+  });
+
+  customerInputs.save.addEventListener('change', ()=>{
+    state.saveCustomer = !!customerInputs.save.checked;
+    if(state.saveCustomer) saveCustomerToStorage();
+    else localStorage.removeItem(STORAGE_KEY);
+  });
+
+  customerInputs.clear.addEventListener('click', ()=>{
+    localStorage.removeItem(STORAGE_KEY);
+    alert('Saved customer details cleared from this device.');
+  });
+}
+
+function applyCustomerToInputs(){
+  if(!customerInputs || !customerInputs.name) return;
+  const c = state.customer;
+  customerInputs.name.value = c.name || '';
+  customerInputs.company.value = c.company || '';
+  customerInputs.email.value = c.email || '';
+  customerInputs.address.value = c.address || '';
+  customerInputs.city.value = c.city || '';
+  customerInputs.postcode.value = c.postcode || '';
+  customerInputs.country.value = c.country || 'UK';
+  if(customerInputs.save) customerInputs.save.checked = !!state.saveCustomer;
+}
+
+function loadCustomerFromStorage(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return;
+    const saved = JSON.parse(raw);
+    if(saved && typeof saved === 'object'){
+      state.customer = { ...state.customer, ...(saved.customer || {}) };
+      state.saveCustomer = saved.saveCustomer !== false; // default true
+    }
+  }catch{}
+}
+
+let saveDebounce;
+function maybeSaveCustomer(){
+  if(!state.saveCustomer) return;
+  clearTimeout(saveDebounce);
+  saveDebounce = setTimeout(saveCustomerToStorage, 200);
+}
+function saveCustomerToStorage(){
+  try{
+    const payload = { saveCustomer: state.saveCustomer, customer: state.customer };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }catch{}
+}
+
+// PDF with company + customer
 function downloadQuote(){
   if(!lastMetrics || !lastQuote){ alert('Upload a model first.'); return; }
 
-  // Basic nudge if name/email missing (non-blocking)
-  if(!state.customer.name) { state.customer.name = prompt('Customer name (for the quote):', state.customer.name || '') || state.customer.name; }
-  if(!state.customer.email) { state.customer.email = prompt('Customer email (optional):', state.customer.email || '') || state.customer.email; }
+  // gentle prompts if missing
+  if(!state.customer.name){
+    state.customer.name = prompt('Customer name (for the quote):', state.customer.name || '') || state.customer.name;
+  }
+  if(!state.customer.email && confirm('Add customer email to the quote?')){
+    state.customer.email = prompt('Customer email:', state.customer.email || '') || state.customer.email;
+  }
+  maybeSaveCustomer();
 
   const today = new Date().toISOString().slice(0,10);
   const fileName = el('#fileName').textContent || 'model';
 
-  // Company details
   const company = {
     name: 'Weston Additive',
     vat: '0000000',
@@ -264,12 +331,10 @@ function downloadQuote(){
   const tech = (state.tech || '').toUpperCase();
   const hours = lastQuote.hours.toFixed(2);
 
-  // Viewer snapshot
   let snap = '';
   const canvas = document.querySelector('#viewerRoot canvas');
   try { snap = canvas ? canvas.toDataURL('image/png') : ''; } catch(e){}
 
-  // Compose customer address block
   const c = state.customer;
   const billToLines = [
     c.name || '',
@@ -395,5 +460,4 @@ function downloadQuote(){
 // Viewer init + resize
 initViewer(document.getElementById('viewerRoot'));
 new ResizeObserver(()=> setSize()).observe(document.getElementById('viewerRoot'));
-
 bindUI();
