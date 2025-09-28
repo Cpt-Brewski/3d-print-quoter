@@ -21,8 +21,7 @@
   <header class="sticky top-0 z-20 backdrop-blur bg-white/80 border-b border-slate-200">
     <div class="max-w-6xl mx-auto px-5 py-4 flex items-center justify-between">
       <h1 class="text-xl sm:text-2xl font-bold tracking-tight">Instant 3D Print Quote</h1>
-      <div class="hidden sm:flex items-center gap-2 text-slate-500 text-sm">
-      </div>
+      <div class="hidden sm:flex items-center gap-2 text-slate-500 text-sm"></div>
     </div>
   </header>
 
@@ -83,7 +82,7 @@
             </select>
           </div>
           <div>
-            <label class="label" for="postProcess">Post‑processing</label>
+            <label class="label" for="postProcess">Post-processing</label>
             <select id="postProcess" class="field">
               <option value="none" selected>None</option>
               <option value="sanding">Light sanding</option>
@@ -133,7 +132,7 @@
           <div>
             <dl class="text-sm space-y-2">
               <div class="flex justify-between"><dt>Base cost</dt><dd id="baseCost">–</dd></div>
-              <div class="flex justify-between"><dt>Post‑processing</dt><dd id="postCost">–</dd></div>
+              <div class="flex justify-between"><dt>Post-processing</dt><dd id="postCost">–</dd></div>
               <div class="flex justify-between"><dt>Turnaround</dt><dd id="rushCost">–</dd></div>
               <div class="flex justify-between font-semibold text-slate-900 text-base"><dt>Total (per unit)</dt><dd id="totalEach">–</dd></div>
               <div class="flex justify-between font-semibold text-slate-900 text-base"><dt>Total (×<span id="qtyLabel">1</span>)</dt><dd id="totalAll">–</dd></div>
@@ -150,6 +149,11 @@
     const viewerIframe = el('viewer');
     let viewerReady = false;
     let pendingModel = null;
+
+    // If the iframe already loaded before we attached the listener, mark ready.
+    if (viewerIframe.contentDocument && viewerIframe.contentDocument.readyState === 'complete') {
+      viewerReady = true;
+    }
 
     // Pricing parameters (tweak to your business logic)
     const PRICING = {
@@ -196,7 +200,12 @@
     viewerIframe.addEventListener('load', () => {
       viewerReady = true;
       if (pendingModel && viewerIframe.contentWindow) {
-        viewerIframe.contentWindow.postMessage({ type: 'loadModel', arrayBuffer: pendingModel.buf, filename: pendingModel.name }, '*');
+        // Use transfer list to avoid copying the buffer.
+        viewerIframe.contentWindow.postMessage(
+          { type: 'loadModel', arrayBuffer: pendingModel.buf, filename: pendingModel.name },
+          '*',
+          [pendingModel.buf]
+        );
         pendingModel = null;
         startCountdown(12);
       }
@@ -213,7 +222,11 @@
       const buf = await f.arrayBuffer();
 
       if (viewerReady && viewerIframe.contentWindow) {
-        viewerIframe.contentWindow.postMessage({ type: 'loadModel', arrayBuffer: buf, filename: f.name }, '*');
+        viewerIframe.contentWindow.postMessage(
+          { type: 'loadModel', arrayBuffer: buf, filename: f.name },
+          '*',
+          [buf]
+        );
         startCountdown(12);
       } else {
         pendingModel = { buf, name: f.name };
@@ -244,7 +257,10 @@
     });
 
     const formEls = ['printType','layerHeight','infill','quantity','turnaround','postProcess'];
-    formEls.forEach(id => el(id).addEventListener('input', () => { if (id==='quantity') el('qtyLabel').textContent = el('quantity').value; recalcQuote(); }));
+    formEls.forEach(id => el(id).addEventListener('input', () => {
+      if (id==='quantity') el('qtyLabel').textContent = el('quantity').value;
+      recalcQuote();
+    }));
 
     function recalcQuote() {
       const qty = Math.max(1, parseInt(el('quantity').value || '1', 10));
@@ -345,7 +361,7 @@
           <tr><th>Layer height</th><td>${spec.layer}</td></tr>
           <tr><th>Infill</th><td>${spec.infill}</td></tr>
           <tr><th>Turnaround</th><td>${spec.turnaround}</td></tr>
-          <tr><th>Post‑processing</th><td>${spec.post}</td></tr>
+          <tr><th>Post-processing</th><td>${spec.post}</td></tr>
         </tbody></table>
         <h2>Estimates</h2>
         <table><tbody>
@@ -363,6 +379,8 @@
         ${notes?`<h2>Notes</h2><div class="muted">${notes}</div>`:''}
         <script>window.onload=()=>window.print();<\/script>
       </body></html>`);
+      win.document.close();
+    });
   </script>
 </body>
 </html>
