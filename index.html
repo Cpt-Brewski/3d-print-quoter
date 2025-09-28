@@ -1,0 +1,504 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instant 3D Print Quote</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    html { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, 'Helvetica Neue', Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+    .card { @apply bg-white rounded-2xl shadow-lg border border-slate-100; }
+    .label { @apply block text-sm font-medium text-slate-700 mb-1; }
+    .field { @apply w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500; }
+    .pill { @apply rounded-full px-3 py-1 text-xs font-medium bg-slate-100 text-slate-700; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+  <header class="sticky top-0 z-20 backdrop-blur bg-white/80 border-b border-slate-200">
+    <div class="max-w-6xl mx-auto px-5 py-4 flex items-center justify-between">
+      <h1 class="text-xl sm:text-2xl font-bold tracking-tight">Instant 3D Print Quote</h1>
+      <div class="hidden sm:flex items-center gap-2 text-slate-500 text-sm">
+        <span class="pill">STL</span>
+        <span class="pill">3MF</span>
+        <span class="pill">WebGL Viewer</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-5 py-6 grid grid-cols-1 lg:grid-cols-5 gap-6">
+    <!-- Left: Form -->
+    <section class="lg:col-span-2 space-y-6">
+      <div class="card p-5">
+        <h2 class="text-lg font-semibold mb-4">Project details</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="label" for="customerName">Name</label>
+            <input id="customerName" class="field" placeholder="Ada Lovelace" />
+          </div>
+          <div>
+            <label class="label" for="customerEmail">Email</label>
+            <input id="customerEmail" type="email" class="field" placeholder="ada@example.com" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="label" for="notes">Notes (optional)</label>
+            <textarea id="notes" class="field" rows="2" placeholder="Any special requirements…"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <h2 class="text-lg font-semibold mb-4">Print configuration</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="label" for="printType">Technology</label>
+            <select id="printType" class="field">
+              <option value="fdm">FDM (PLA/PETG)</option>
+              <option value="sla">SLA (Resin)</option>
+              <option value="sls">SLS (Nylon)</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" for="layerHeight">Layer height</label>
+            <select id="layerHeight" class="field">
+              <option value="0.3">0.30 mm (draft)</option>
+              <option value="0.2" selected>0.20 mm (standard)</option>
+              <option value="0.1">0.10 mm (fine)</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" for="infill">Infill % (FDM)</label>
+            <input id="infill" class="field" type="number" min="0" max="100" step="5" value="20" />
+          </div>
+          <div>
+            <label class="label" for="quantity">Quantity</label>
+            <input id="quantity" class="field" type="number" min="1" step="1" value="1" />
+          </div>
+          <div>
+            <label class="label" for="turnaround">Turnaround</label>
+            <select id="turnaround" class="field">
+              <option value="standard" selected>Standard (3–5 days)</option>
+              <option value="express">Express (1–2 days)</option>
+              <option value="rush">Rush (same/next day)</option>
+            </select>
+          </div>
+          <div>
+            <label class="label" for="postProcess">Post‑processing</label>
+            <select id="postProcess" class="field">
+              <option value="none" selected>None</option>
+              <option value="sanding">Light sanding</option>
+              <option value="priming">Prime & prep</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-5">
+        <h2 class="text-lg font-semibold mb-3">Upload model (.stl / .3mf)</h2>
+        <input id="fileInput" class="block w-full text-sm text-slate-600 file:mr-4 file:rounded-xl file:border-0 file:bg-indigo-600 file:px-4 file:py-2 file:text-white hover:file:bg-indigo-700 file:cursor-pointer" type="file" accept=".stl,.STL,.3mf,.3MF" />
+        <p id="fileInfo" class="mt-2 text-sm text-slate-500">No file selected.</p>
+        <p id="parseStatus" class="mt-1 text-sm"></p>
+      </div>
+
+      <div class="flex gap-3">
+        <button id="resetBtn" class="px-4 py-2 rounded-xl border border-slate-300 bg-white hover:bg-slate-50">Reset</button>
+        <button id="downloadQuoteBtn" class="px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700">Download Quote (PDF)</button>
+      </div>
+    </section>
+
+    <!-- Right: Viewer + Quote -->
+    <section class="lg:col-span-3 space-y-6">
+      <div class="card p-0 overflow-hidden">
+        <div class="px-5 pt-5 flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-semibold">3D Preview</h2>
+            <p class="text-sm text-slate-500">Interactive viewer runs isolated in an iframe for safety.</p>
+          </div>
+          <div class="text-sm text-slate-500" id="modelMeta">–</div>
+        </div>
+        <iframe id="viewer" title="Model Viewer" class="w-full h-[420px] mt-4 border-t border-slate-100"></iframe>
+      </div>
+
+      <div class="card p-5">
+        <h2 class="text-lg font-semibold mb-4">Instant quote</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <dl class="text-sm space-y-2">
+              <div class="flex justify-between"><dt>Estimated volume</dt><dd id="estVolume">–</dd></div>
+              <div class="flex justify-between"><dt>Surface area</dt><dd id="estArea">–</dd></div>
+              <div class="flex justify-between"><dt>Bounding box</dt><dd id="estBBox">–</dd></div>
+              <div class="flex justify-between"><dt>Estimated print time</dt><dd id="estTime">–</dd></div>
+            </dl>
+          </div>
+          <div>
+            <dl class="text-sm space-y-2">
+              <div class="flex justify-between"><dt>Base cost</dt><dd id="baseCost">–</dd></div>
+              <div class="flex justify-between"><dt>Post‑processing</dt><dd id="postCost">–</dd></div>
+              <div class="flex justify-between"><dt>Turnaround</dt><dd id="rushCost">–</dd></div>
+              <div class="flex justify-between font-semibold text-slate-900 text-base"><dt>Total (per unit)</dt><dd id="totalEach">–</dd></div>
+              <div class="flex justify-between font-semibold text-slate-900 text-base"><dt>Total (×<span id="qtyLabel">1</span>)</dt><dd id="totalAll">–</dd></div>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Scripts -->
+  <script>
+    const el = (id) => document.getElementById(id);
+
+    const viewerIframe = el('viewer');
+
+    // Build the iframe srcdoc with a fully self-contained Three.js viewer that accepts ArrayBuffer via postMessage
+    const viewerHTML = `<!doctype html>
+<html>
+<head>
+  <meta charset=\"utf-8\" />
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+  <style>html,body{margin:0;height:100%;overflow:hidden}#c{width:100%;height:100%;display:block}#overlay{position:absolute;inset:12px auto auto 12px;background:rgba(0,0,0,.6);color:#fff;padding:6px 10px;border-radius:10px;font:12px system-ui}</style>
+  <script src=\"https://unpkg.com/three@0.160.0/build/three.min.js\"></script>
+  <script src=\"https://unpkg.com/three@0.160.0/examples/js/controls/OrbitControls.js\"></script>
+  <script src=\"https://unpkg.com/three@0.160.0/examples/js/loaders/STLLoader.js\"></script>
+  <script src=\"https://unpkg.com/three@0.160.0/examples/js/loaders/3MFLoader.js\"></script>
+</head>
+<body>
+  <canvas id=\"c\"></canvas>
+  <div id=\"overlay\">Drop file or wait…</div>
+  <script>
+    const canvas = document.getElementById('c');
+    const overlay = document.getElementById('overlay');
+    const renderer = new THREE.WebGLRenderer({canvas, antialias:true});
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf8fafc);
+    const camera = new THREE.PerspectiveCamera(50, 2, 0.1, 1000);
+    camera.position.set(120, 90, 140);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    const light1 = new THREE.DirectionalLight(0xffffff, 1);
+    light1.position.set(1,1,1);
+    scene.add(light1);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+    const grid = new THREE.GridHelper(400, 40, 0xcccccc, 0xe5e7eb);
+    grid.position.y = -0.01;
+    scene.add(grid);
+
+    let mesh = null;
+
+    function fitCameraToObject(object) {
+      const box = new THREE.Box3().setFromObject(object);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const fitDist = maxDim / (2 * Math.tan((Math.PI * camera.fov) / 360));
+      const dir = new THREE.Vector3(1, 0.8, 1).normalize();
+      camera.position.copy(center.clone().add(dir.multiplyScalar(fitDist * 1.4)));
+      camera.near = maxDim / 100;
+      camera.far = maxDim * 100;
+      camera.updateProjectionMatrix();
+      controls.target.copy(center);
+      controls.update();
+    }
+
+    function computeVolumeAndArea(geometry) {
+      // Ensure indexed BufferGeometry with normals
+      const geom = geometry.index ? geometry.clone() : THREE.BufferGeometryUtils ? THREE.BufferGeometryUtils.mergeVertices(geometry) : geometry.clone();
+      geom.computeVertexNormals();
+      const pos = geom.getAttribute('position');
+      const index = geom.getIndex();
+      let volume = 0, area = 0;
+      const vA = new THREE.Vector3(), vB = new THREE.Vector3(), vC = new THREE.Vector3();
+      const cb = new THREE.Vector3(), ab = new THREE.Vector3();
+      if (index) {
+        for (let i=0; i<index.count; i+=3) {
+          vA.fromBufferAttribute(pos, index.getX(i));
+          vB.fromBufferAttribute(pos, index.getX(i+1));
+          vC.fromBufferAttribute(pos, index.getX(i+2));
+          // Area
+          cb.subVectors(vC, vB);
+          ab.subVectors(vA, vB);
+          area += cb.cross(ab).length() * 0.5;
+          // Volume (signed volume of tetrahedron)
+          volume += vA.dot(vB.cross(vC)) / 6.0;
+        }
+      } else {
+        for (let i=0; i<pos.count; i+=9) {
+          vA.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+          vB.set(pos.getX(i+3), pos.getY(i+3), pos.getZ(i+3));
+          vC.set(pos.getX(i+6), pos.getY(i+6), pos.getZ(i+6));
+          cb.subVectors(vC, vB);
+          ab.subVectors(vA, vB);
+          area += cb.cross(ab).length() * 0.5;
+          volume += vA.dot(vB.cross(vC)) / 6.0;
+        }
+      }
+      return { volume: Math.abs(volume), area };
+    }
+
+    function clearMesh() {
+      if (mesh) {
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        mesh = null;
+      }
+    }
+
+    function loadFromArrayBuffer(arrayBuffer, filename) {
+      clearMesh();
+      const ext = (filename.split('.').pop() || '').toLowerCase();
+      let geometryPromise;
+      if (ext === 'stl') {
+        const loader = new THREE.STLLoader();
+        const geom = loader.parse(arrayBuffer);
+        geometryPromise = Promise.resolve(geom);
+      } else if (ext === '3mf') {
+        const loader = new THREE.ThreeMFLoader();
+        const model = loader.parse(arrayBuffer);
+        // Merge all meshes into one geometry for analysis
+        let merged = new THREE.BufferGeometry();
+        model.traverse((child) => {
+          if (child.isMesh) {
+            merged = THREE.BufferGeometryUtils ? THREE.BufferGeometryUtils.mergeGeometries([merged, child.geometry], false) : child.geometry.clone();
+          }
+        });
+        geometryPromise = Promise.resolve(merged);
+      } else {
+        throw new Error('Unsupported extension: ' + ext);
+      }
+      geometryPromise.then(geom => {
+        const mat = new THREE.MeshStandardMaterial({color: 0x8da2fb, metalness: 0.05, roughness: 0.9});
+        mesh = new THREE.Mesh(geom, mat);
+        scene.add(mesh);
+        fitCameraToObject(mesh);
+        const box = new THREE.Box3().setFromObject(mesh);
+        const size = box.getSize(new THREE.Vector3());
+        const metrics = computeVolumeAndArea(mesh.geometry);
+        // Send metrics to parent (units: assume model units are mm)
+        parent.postMessage({
+          type: 'metrics',
+          bbox: {x: size.x, y: size.y, z: size.z},
+          volume_mm3: metrics.volume, // mm^3 if model units are mm
+          area_mm2: metrics.area,
+          filename
+        }, '*');
+        overlay.textContent = filename + ' loaded';
+      }).catch(err => {
+        parent.postMessage({ type: 'error', message: err.message || String(err) }, '*');
+        overlay.textContent = 'Error: ' + (err.message || err);
+      });
+    }
+
+    window.addEventListener('message', (e) => {
+      const msg = e.data || {};
+      if (msg.type === 'loadModel' && msg.arrayBuffer && msg.filename) {
+        overlay.textContent = 'Parsing ' + msg.filename + ' …';
+        loadFromArrayBuffer(msg.arrayBuffer, msg.filename);
+      }
+    });
+
+    // Basic render loop
+    function resizeRendererToDisplaySize() {
+      const w = canvas.clientWidth; const h = canvas.clientHeight;
+      const needResize = canvas.width !== w || canvas.height !== h;
+      if (needResize) { renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+      return needResize;
+    }
+    function render() {
+      resizeRendererToDisplaySize();
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(render);
+    }
+    render();
+
+    // Drag & drop support inside iframe (optional)
+    document.addEventListener('dragover', (e)=>{e.preventDefault(); overlay.textContent='Drop to view…';});
+    document.addEventListener('drop', (e)=>{
+      e.preventDefault();
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) { file.arrayBuffer().then(buf => loadFromArrayBuffer(buf, file.name)); }
+    });
+  <\/script>
+</body>
+</html>`;
+
+    // Set iframe content
+    viewerIframe.srcdoc = viewerHTML;
+
+    // Pricing parameters (tweak to your business logic)
+    const PRICING = {
+      baseSetup: 3.5, // £ per job
+      tech: {
+        fdm: { material: 0.08, // £ per cm^3
+               timePerCm3: 0.12, // hr per cm^3 (very rough)
+               hourly: 6.0 // £/hr machine time
+        },
+        sla: { material: 0.22, timePerCm3: 0.08, hourly: 10.0 },
+        sls: { material: 0.18, timePerCm3: 0.10, hourly: 9.0 }
+      },
+      layerFactor: { '0.3': 0.9, '0.2': 1.0, '0.1': 1.3 },
+      infillFactor(infillPct) { // Only for FDM; scales material & time
+        return Math.max(0.3, (infillPct/100) * 0.6 + 0.4); // 40% at 0% infill → 100% at 100% infill
+      },
+      postProcess: { none: 0, sanding: 2.5, priming: 5.0 }, // £ per unit
+      turnaround: { standard: 1.0, express: 1.15, rush: 1.35 },
+      minPerUnit: 6.0 // minimum charge per unit
+    };
+
+    let latestMetrics = null; // from iframe
+
+    // Handle file upload → read as ArrayBuffer → postMessage to iframe
+    el('fileInput').addEventListener('change', async (e) => {
+      const f = e.target.files && e.target.files[0];
+      if (!f) return;
+      const ext = (f.name.split('.').pop() || '').toLowerCase();
+      if (!['stl','3mf'].includes(ext)) { el('parseStatus').textContent = 'Unsupported file type'; return; }
+      el('fileInfo').textContent = `${f.name} • ${(f.size/1024/1024).toFixed(2)} MB`;
+      el('parseStatus').textContent = 'Uploading to viewer…';
+      const buf = await f.arrayBuffer();
+      viewerIframe.contentWindow.postMessage({ type: 'loadModel', arrayBuffer: buf, filename: f.name }, '*');
+    });
+
+    // Receive metrics from iframe and compute quote
+    window.addEventListener('message', (e) => {
+      const msg = e.data || {};
+      if (msg.type === 'metrics') {
+        latestMetrics = msg;
+        el('parseStatus').textContent = 'Model parsed.';
+        const bbox = msg.bbox; // in model units (assume mm)
+        const volume_mm3 = msg.volume_mm3;
+        const area_mm2 = msg.area_mm2;
+        // Display metrics
+        const toMM = (n)=> n.toFixed(1);
+        el('estBBox').textContent = `${toMM(bbox.x)} × ${toMM(bbox.y)} × ${toMM(bbox.z)} mm`;
+        el('estVolume').textContent = `${(volume_mm3/1000).toFixed(2)} cm³`;
+        el('estArea').textContent = `${(area_mm2/100).toFixed(2)} cm²`;
+        // Recalculate quote
+        recalcQuote();
+        // Meta
+        el('modelMeta').textContent = `${msg.filename}`;
+      } else if (msg.type === 'error') {
+        el('parseStatus').textContent = 'Viewer error: ' + msg.message;
+      }
+    });
+
+    const formEls = ['printType','layerHeight','infill','quantity','turnaround','postProcess'];
+    formEls.forEach(id => el(id).addEventListener('input', () => { if (id==='quantity') el('qtyLabel').textContent = el('quantity').value; recalcQuote(); }));
+
+    function recalcQuote() {
+      const qty = Math.max(1, parseInt(el('quantity').value || '1', 10));
+      const type = el('printType').value;
+      const layer = el('layerHeight').value;
+      const infill = Math.min(100, Math.max(0, parseFloat(el('infill').value || '20')));
+      const turnaround = el('turnaround').value;
+      const post = el('postProcess').value;
+
+      if (!latestMetrics) { return; }
+      // Convert volume to cm^3 (assuming model units are mm)
+      const vol_cm3 = latestMetrics.volume_mm3 / 1000.0;
+      // Very rough time estimate from volume, layer height, and tech
+      const t = PRICING.tech[type];
+      const layerMul = PRICING.layerFactor[layer] || 1;
+      const infMul = (type==='fdm') ? PRICING.infillFactor(infill) : 1;
+      const estHours = Math.max(0.3, vol_cm3 * t.timePerCm3 * layerMul * infMul);
+      el('estTime').textContent = `${estHours.toFixed(2)} hr`;
+
+      let baseMaterial = vol_cm3 * t.material * infMul;
+      let machine = estHours * t.hourly;
+      let perUnit = PRICING.baseSetup + baseMaterial + machine;
+      perUnit = Math.max(perUnit, PRICING.minPerUnit);
+      const postCost = PRICING.postProcess[post] || 0;
+      let perUnitWithExtras = (perUnit + postCost) * (PRICING.turnaround[turnaround] || 1);
+
+      const fmt = (n)=> `£${n.toFixed(2)}`;
+      el('baseCost').textContent = fmt(perUnit);
+      el('postCost').textContent = fmt(postCost);
+      const rushAdd = perUnitWithExtras - (perUnit + postCost);
+      el('rushCost').textContent = (rushAdd >= 0 ? '+' : '') + fmt(rushAdd);
+      el('totalEach').textContent = fmt(perUnitWithExtras);
+      el('totalAll').textContent = fmt(perUnitWithExtras * qty);
+    }
+
+    // Reset
+    el('resetBtn').addEventListener('click', () => {
+      document.querySelector('form')?.reset();
+      el('fileInput').value = '';
+      el('fileInfo').textContent = 'No file selected.';
+      el('parseStatus').textContent = '';
+      latestMetrics = null;
+      ['estVolume','estArea','estBBox','estTime','baseCost','postCost','rushCost','totalEach','totalAll'].forEach(id => el(id).textContent = '–');
+      viewerIframe.srcdoc = viewerHTML; // reload viewer
+    });
+
+    // Download simple PDF quote (client-side)
+    // Uses print() with a new window for better portability without external libs
+    el('downloadQuoteBtn').addEventListener('click', () => {
+      const name = el('customerName').value || 'Customer';
+      const email = el('customerEmail').value || '';
+      const qty = el('quantity').value;
+      const totals = {
+        each: el('totalEach').textContent,
+        all: el('totalAll').textContent
+      };
+      const metrics = {
+        vol: el('estVolume').textContent,
+        area: el('estArea').textContent,
+        bbox: el('estBBox').textContent,
+        time: el('estTime').textContent
+      };
+      const spec = {
+        tech: el('printType').selectedOptions[0].text,
+        layer: el('layerHeight').selectedOptions[0].text,
+        infill: el('infill').value + '%',
+        turnaround: el('turnaround').selectedOptions[0].text,
+        post: el('postProcess').selectedOptions[0].text
+      };
+      const notes = (el('notes').value || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const file = el('fileInfo').textContent;
+      const when = new Date().toLocaleString();
+
+      const win = window.open('', '_blank');
+      win.document.write(`<!doctype html><html><head><meta charset=\"utf-8\"><title>Quote</title>
+        <style>body{font-family:Inter,system-ui;margin:40px;color:#0f172a}h1{font-size:22px;margin:0 0 16px}h2{font-size:16px;margin:24px 0 8px}table{width:100%;border-collapse:collapse;margin-top:8px}td,th{padding:8px;border-bottom:1px solid #e2e8f0;text-align:left}small{color:#64748b} .muted{color:#475569}</style>
+      </head><body>
+        <h1>Instant 3D Print Quote</h1>
+        <small>Generated ${when}</small>
+        <h2>Customer</h2>
+        <div class=\"muted\">${name}${email?` • ${email}`:''}</div>
+        <h2>Model</h2>
+        <div class=\"muted\">${file}</div>
+        <h2>Specifications</h2>
+        <table><tbody>
+          <tr><th>Technology</th><td>${spec.tech}</td></tr>
+          <tr><th>Layer height</th><td>${spec.layer}</td></tr>
+          <tr><th>Infill</th><td>${spec.infill}</td></tr>
+          <tr><th>Turnaround</th><td>${spec.turnaround}</td></tr>
+          <tr><th>Post‑processing</th><td>${spec.post}</td></tr>
+        </tbody></table>
+        <h2>Estimates</h2>
+        <table><tbody>
+          <tr><th>Volume</th><td>${metrics.vol}</td></tr>
+          <tr><th>Surface area</th><td>${metrics.area}</td></tr>
+          <tr><th>Bounding box</th><td>${metrics.bbox}</td></tr>
+          <tr><th>Print time</th><td>${metrics.time}</td></tr>
+        </tbody></table>
+        <h2>Totals</h2>
+        <table><tbody>
+          <tr><th>Per unit</th><td>${totals.each}</td></tr>
+          <tr><th>Quantity</th><td>${qty}</td></tr>
+          <tr><th><strong>Grand total</strong></th><td><strong>${totals.all}</strong></td></tr>
+        </tbody></table>
+        ${notes?`<h2>Notes</h2><div class=\"muted\">${notes}</div>`:''}
+        <script>window.onload=()=>window.print();<\/script>
+      </body></html>`);
+      win.document.close();
+    });
+  </script>
+</body>
+</html>
