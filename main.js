@@ -1,8 +1,9 @@
-// main.js
+// main.js (embed-friendly with worker fallback)
 import { initViewer, loadGeometryIntoScene, centerAndFrame, setSize } from './viewer.js';
 import { price } from './pricing.js';
 import { formatMetrics } from './metrics.js';
 import { ThreeMFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/3MFLoader.js';
+import { STLLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/STLLoader.js';
 
 const el = sel => document.querySelector(sel);
 const fmt = n => `£${Number(n).toFixed(2)}`;
@@ -11,7 +12,7 @@ let lastMetrics = null;
 let lastQuote = null;
 
 const state = {
-  unitScale: 1, // mm multiplier
+  unitScale: 1,
   tech: 'fdm',
   layer: '0.2',
   post: 'none',
@@ -20,7 +21,6 @@ const state = {
   infillPct: 20
 };
 
-// UI bindings
 function bindUI(){
   ['techSel','layerSel','postSel','turnSel','qtyInput','infillInput'].forEach(id=>{
     el('#'+id).addEventListener('input', onUIChange);
@@ -74,6 +74,22 @@ function bboxFromGeomPayload(geomPayload){
   return { min, max };
 }
 
+// Worker capability check
+const params = new URLSearchParams(location.search);
+const FORCE_NO_WORKER = params.get('noworker') === '1';
+let workerAvailable = false;
+let worker = null;
+try{
+  if(!FORCE_NO_WORKER){
+    worker = new Worker('./parsers.worker.js', { type: 'module' });
+    // quick ping test
+    worker.postMessage({ type: 'noop' });
+    workerAvailable = true;
+  }
+}catch(e){
+  workerAvailable = false;
+}
+
 async function handleFile(file){
   const name = file.name || 'model';
   const ext = (name.split('.').pop() || '').toLowerCase();
@@ -82,56 +98,145 @@ async function handleFile(file){
   countdown(3);
 
   const buf = await file.arrayBuffer();
-  const worker = new Worker('./parsers.worker.js', { type: 'module' });
 
   if(ext === 'stl'){
-    // Parse STL fully in worker
-    worker.postMessage({ type:'parse', format:'stl', buffer: buf }, [buf]);
-    worker.onmessage = ({ data }) => {
-      if (!data.ok){ alert('Parse error: ' + data.error); el('#statusText').textContent = 'Error: ' + data.error; return; }
-      const { bbox, metrics, geomPayload } = data.result;
-      lastMetrics = metrics;
-      el('#statusText').textContent = 'Model loaded. Metrics computed.';
-
-      loadGeometryIntoScene(geomPayload);
-      centerAndFrame(bbox);
-      updateMetricsUI();
-      recompute();
-    };
-  } else {
-    // 3MF must be parsed on main thread (DOMParser unavailable in workers)
-    try{
-      const group = new ThreeMFLoader().parse(buf);
-      // Collect parts as simple arrays
-      const parts = [];
-      group.traverse(n=>{
-        if(n.isMesh && n.geometry && n.geometry.attributes && n.geometry.attributes.position){
-          const pos = n.geometry.attributes.position.array;
-          const indices = n.geometry.index ? n.geometry.index.array : null;
-          parts.push({ positions: Array.from(pos), indices: indices ? Array.from(indices) : null });
+    if(workerAvailable){
+      const w = worker;
+      const onmsg = ({ data }) => {
+        if (data.ok && data.result && (data.result.geomPayload || data.result.metrics)) {
+          w.removeEventListener('message', onmsg);
+          const { bbox, metrics, geomPayload } = data.result;
+          lastMetrics = metrics;
+          el('#statusText').textContent = 'Model loaded. Metrics computed.';
+          loadGeometryIntoScene(geomPayload);
+          centerAndFrame(bbox);
+          updateMetricsUI();
+          recompute();
+        } else if(data.ok === false){
+          w.removeEventListener('message', onmsg);
+          // fallback to main thread parse
+          parseSTLMain(buf);
         }
-      });
-      const geomPayload = { format:'3mf', parts };
-      const bbox = bboxFromGeomPayload(geomPayload);
-
-      // Ask worker to compute metrics from the flattened payload (no DOMParser needed)
-      worker.postMessage({ type:'metricsFromPayload', geomPayload });
-      worker.onmessage = ({ data }) => {
-        if(!data.ok){ alert('Metrics error: ' + data.error); el('#statusText').textContent = 'Error: ' + data.error; return; }
-        lastMetrics = { ...data.result.metrics, bbox };
-        el('#statusText').textContent = 'Model loaded. Metrics computed.';
-
-        loadGeometryIntoScene(geomPayload);
-        centerAndFrame(bbox);
-        updateMetricsUI();
-        recompute();
       };
-    }catch(e){
-      alert('Parse error (3MF): ' + (e.message || String(e)));
-      el('#statusText').textContent = 'Error: ' + (e.message || String(e));
+      w.addEventListener('message', onmsg);
+      w.postMessage({ type:'parseSTL', buffer: buf }, [buf]);
+    } else {
+      await parseSTLMain(buf);
     }
+  } else {
+    // 3MF always on main thread
+    await parse3MFMain(buf);
   }
 }
+
+async function parseSTLMain(buffer){
+  try{
+    const geom = new STLLoader().parse(buffer);
+    const positions = Array.from(geom.attributes.position.array);
+    const indices = geom.index ? Array.from(geom.index.array) : null;
+    const geomPayload = { format:'stl', parts:[{ positions, indices }] };
+    const bbox = bboxFromGeomPayload(geomPayload);
+    // compute metrics on main thread (lightweight for most models)
+    const metrics = await metricsFromPayload(geomPayload);
+    lastMetrics = { ...metrics, bbox };
+    el('#statusText').textContent = 'Model loaded. Metrics computed.';
+    loadGeometryIntoScene(geomPayload);
+    centerAndFrame(bbox);
+    updateMetricsUI();
+    recompute();
+  }catch(e){
+    alert('STL parse error: ' + (e.message || String(e)));
+  }
+}
+
+async function parse3MFMain(buffer){
+  try{
+    const group = new ThreeMFLoader().parse(buffer);
+    const parts = [];
+    group.traverse(n=>{
+      if(n.isMesh && n.geometry && n.geometry.attributes && n.geometry.attributes.position){
+        const pos = n.geometry.attributes.position.array;
+        const indices = n.geometry.index ? n.geometry.index.array : null;
+        parts.push({ positions: Array.from(pos), indices: indices ? Array.from(indices) : null });
+      }
+    });
+    const geomPayload = { format:'3mf', parts };
+    const bbox = bboxFromGeomPayload(geomPayload);
+    const metrics = await metricsFromPayload(geomPayload);
+    lastMetrics = { ...metrics, bbox };
+    el('#statusText').textContent = 'Model loaded. Metrics computed.';
+    loadGeometryIntoScene(geomPayload);
+    centerAndFrame(bbox);
+    updateMetricsUI();
+    recompute();
+  }catch(e){
+    alert('3MF parse error: ' + (e.message || String(e)));
+  }
+}
+
+function metricsFromPayload(geomPayload){
+  return new Promise((resolve)=>{
+    if(workerAvailable){
+      const onmsg = ({ data }) => {
+        if(data.ok){ worker.removeEventListener('message', onmsg); resolve(data.result.metrics); }
+      };
+      worker.addEventListener('message', onmsg);
+      worker.postMessage({ type:'metricsFromPayload', geomPayload });
+    } else {
+      // inline compute (very small, fine for embeds)
+      let area = 0, volume = 0;
+      const vA = [0,0,0], vB=[0,0,0], vC=[0,0,0];
+      const triArea = (a,b,c)=>{
+        const ab=[b[0]-a[0],b[1]-a[1],b[2]-a[2]];
+        const ac=[c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+        const cx=ab[1]*ac[2]-ab[2]*ac[1];
+        const cy=ab[2]*ac[0]-ab[0]*ac[2];
+        const cz=ab[0]*ac[1]-ab[1]*ac[0];
+        return 0.5*Math.hypot(cx,cy,cz);
+      };
+      const triVol=(a,b,c)=> (a[0]*(b[1]*c[2]-b[2]*c[1]) - a[1]*(b[0]*c[2]-b[2]*c[0]) + a[2]*(b[0]*c[1]-b[1]*c[0]))/6;
+      for(const part of geomPayload.parts){
+        const pos=part.positions, idx=part.indices;
+        if(idx){
+          for(let i=0;i<idx.length;i+=3){
+            const i0=idx[i]*3,i1=idx[i+1]*3,i2=idx[i+2]*3;
+            vA[0]=pos[i0];vA[1]=pos[i0+1];vA[2]=pos[i0+2];
+            vB[0]=pos[i1];vB[1]=pos[i1+1];vB[2]=pos[i1+2];
+            vC[0]=pos[i2];vC[1]=pos[i2+1];vC[2]=pos[i2+2];
+            area += triArea(vA,vB,vC);
+            volume += triVol(vA,vB,vC);
+          }
+        } else {
+          for(let i=0;i<pos.length;i+=9){
+            vA[0]=pos[i];vA[1]=pos[i+1];vA[2]=pos[i+2];
+            vB[0]=pos[i+3];vB[1]=pos[i+4];vB[2]=pos[i+5];
+            vC[0]=pos[i+6];vC[1]=pos[i+7];vC[2]=pos[i+8];
+            area += triArea(vA,vB,vC);
+            volume += triVol(vA,vB,vC);
+          }
+        }
+      }
+      resolve({ area_mm2: Math.abs(area), volume_mm3: Math.abs(volume) });
+    }
+  });
+}
+
+function updateMetricsUI(){
+  const { volume_mm3, area_mm2, bbox } = lastMetrics || {};
+  const f = (await import('./metrics.js')).formatMetrics({ volume_mm3, area_mm2, bbox });
+  el('#volOut').textContent = f.volume;
+  el('#areaOut').textContent = f.area;
+  el('#bboxOut').textContent = f.bbox;
+}
+
+function recompute(){
+  if(!lastMetrics) return;
+  const { price } = window.PRICE_MODULE || {};
+}
+
+// Inline small helpers to avoid circular imports during dynamic import above
+import { formatMetrics } from './metrics.js';
+import { price as priceFn } from './pricing.js';
 
 function updateMetricsUI(){
   const { volume_mm3, area_mm2, bbox } = lastMetrics || {};
@@ -143,7 +248,7 @@ function updateMetricsUI(){
 
 function recompute(){
   if(!lastMetrics) return;
-  lastQuote = price({ ...state, volume_mm3: lastMetrics.volume_mm3 });
+  lastQuote = priceFn({ ...state, volume_mm3: lastMetrics.volume_mm3 });
   el('#materialOut').textContent = fmt(lastQuote.material);
   el('#machineOut').textContent = fmt(lastQuote.machine);
   el('#setupOut').textContent = fmt(lastQuote.setup);
@@ -153,7 +258,7 @@ function recompute(){
   el('#totalOut').textContent = fmt(lastQuote.total) + `  ( ${state.qty} × ${fmt(lastQuote.perUnit)} )`;
 }
 
-function downloadQuote(){
+el('#downloadQuoteBtn').addEventListener('click', ()=>{
   if(!lastMetrics || !lastQuote){ alert('Upload a model first.'); return; }
   const today = new Date().toISOString().slice(0,10);
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Quote</title>
@@ -166,11 +271,11 @@ function downloadQuote(){
   <table><tr><th>Description</th><th>Qty</th><th>Unit</th><th>Total</th></tr>
   <tr><td>3D print — ${document.querySelector('#fileName').textContent}</td><td style="text-align:center">${state.qty}</td><td>${fmt(lastQuote.perUnit)}</td><td>${fmt(lastQuote.total)}</td></tr>
   </table>
-  <p class="muted">Volume: ${formatMetrics({volume_mm3:lastMetrics.volume_mm3}).volume} &nbsp; | &nbsp; Area: ${formatMetrics({area_mm2:lastMetrics.area_mm2}).area} &nbsp; | &nbsp; BBox: ${formatMetrics({bbox:lastMetrics.bbox}).bbox}</p>
+  <p class="muted">Volume: ${(lastMetrics.volume_mm3/1000).toFixed(2)} cm³ &nbsp; | &nbsp; Area: ${(lastMetrics.area_mm2/100).toFixed(2)} cm² &nbsp; | &nbsp; BBox: ${(lastMetrics.bbox.max.x-lastMetrics.bbox.min.x).toFixed(1)} × ${(lastMetrics.bbox.max.y-lastMetrics.bbox.min.y).toFixed(1)} × ${(lastMetrics.bbox.max.z-lastMetrics.bbox.min.z).toFixed(1)} mm</p>
   <p class="muted">Prices in GBP, indicative only. Shipping & VAT not included unless specified.</p></body></html>`;
   const win = window.open('', '_blank');
   win.document.open(); win.document.write(html); win.document.close(); win.focus(); try{ win.print(); } catch(e){}
-}
+});
 
 // Viewer init + resize
 initViewer(document.getElementById('viewerRoot'));
