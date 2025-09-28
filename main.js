@@ -6,6 +6,7 @@ import { ThreeMFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders
 
 const el = sel => document.querySelector(sel);
 const fmt = n => `£${Number(n).toFixed(2)}`;
+const STORAGE_KEY = 'wa_customer_v1';
 
 let lastMetrics = null;
 let lastQuote = null;
@@ -18,6 +19,7 @@ const state = {
   turnaround: 'standard',
   qty: 1,
   infillPct: 20,
+  saveCustomer: true,
   customer: {
     name: '',
     company: '',
@@ -29,13 +31,21 @@ const state = {
   }
 };
 
-// ----- UI bindings
+/* ------------------------ UI BINDINGS ------------------------ */
 function bindUI(){
   ['techSel','layerSel','postSel','turnSel','qtyInput','infillInput'].forEach(id=>{
     el('#'+id).addEventListener('input', onUIChange);
   });
   el('#resetBtn').addEventListener('click', resetAll);
-  el('#downloadQuoteBtn').addEventListener('click', downloadQuote);
+
+  // On click, open modal first (do not immediately print)
+  el('#downloadQuoteBtn').addEventListener('click', async ()=>{
+    if(!lastMetrics || !lastQuote){
+      alert('Upload a model first.');
+      return;
+    }
+    await showCustomerModal(); // opens modal; proceeds to PDF on "Continue"
+  });
 
   const dropZone = el('#dropZone');
   ['dragenter','dragover'].forEach(t=> dropZone.addEventListener(t, e=>{ e.preventDefault(); dropZone.classList.add('dragover'); }));
@@ -50,55 +60,11 @@ function bindUI(){
     if(f) handleFile(f);
   });
 
-  injectCustomerForm();
+  // Load saved customer (if any) at startup
+  loadCustomerFromStorage();
 }
 
-// Inject a simple "Customer details" form into the left panel
-function injectCustomerForm(){
-  const leftPanel = document.querySelector('.panel.left');
-  if(!leftPanel) return;
-
-  const container = document.createElement('div');
-  container.className = 'customer-block';
-  container.style.marginTop = '14px';
-  container.innerHTML = `
-    <h3 style="margin:10px 0; font-size:14px; color:var(--muted);">Customer details</h3>
-    <div class="field"><label>Customer name</label><input id="custName" type="text" placeholder="Jane Doe" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-    <div class="grid-2">
-      <div class="field"><label>Company (optional)</label><input id="custCompany" type="text" placeholder="Client Ltd" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-      <div class="field"><label>Email</label><input id="custEmail" type="email" placeholder="jane@example.com" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-    </div>
-    <div class="field"><label>Address</label><input id="custAddress" type="text" placeholder="10 Sample Road" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-    <div class="grid-2">
-      <div class="field"><label>City</label><input id="custCity" type="text" placeholder="Bristol" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-      <div class="field"><label>Postcode</label><input id="custPostcode" type="text" placeholder="BS1 1AA" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-    </div>
-    <div class="field"><label>Country</label><input id="custCountry" type="text" value="UK" style="width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)"></div>
-  `;
-  // Insert before the metrics block for visibility
-  const metricsBlock = leftPanel.querySelector('.metrics');
-  leftPanel.insertBefore(container, metricsBlock || null);
-
-  // Bind inputs
-  const map = {
-    '#custName': 'name',
-    '#custCompany': 'company',
-    '#custEmail': 'email',
-    '#custAddress': 'address',
-    '#custCity': 'city',
-    '#custPostcode': 'postcode',
-    '#custCountry': 'country'
-  };
-  Object.entries(map).forEach(([selector, key])=>{
-    const input = container.querySelector(selector);
-    if(input){
-      input.addEventListener('input', ()=> {
-        state.customer[key] = input.value.trim();
-      });
-    }
-  });
-}
-
+/* ------------------------ STATE HANDLERS ------------------------ */
 function onUIChange(){
   state.tech = el('#techSel').value;
   state.layer = el('#layerSel').value;
@@ -116,11 +82,6 @@ function resetAll(){
   el('#statusText').textContent = 'Upload a model to preview & quote.';
   ['#volOut','#areaOut','#bboxOut','#materialOut','#machineOut','#setupOut','#finishOut','#turnOut','#hoursOut','#totalOut']
     .forEach(sel=> el(sel).textContent = '—');
-
-  // Reset customer details visually too
-  const ids = ['#custName','#custCompany','#custEmail','#custAddress','#custCity','#custPostcode','#custCountry'];
-  ids.forEach(id=>{ const i = el(id); if(i) i.value = (id==='#custCountry' ? 'UK' : ''); });
-  state.customer = { name:'', company:'', email:'', address:'', city:'', postcode:'', country:'UK' };
 }
 
 function countdown(seconds=3){
@@ -129,13 +90,11 @@ function countdown(seconds=3){
   const timer = setInterval(()=>{
     rem--;
     cd.textContent = rem;
-    if(rem<=0){
-      clearInterval(timer);
-      cd.style.display = 'none';
-    }
+    if(rem<=0){ clearInterval(timer); cd.style.display = 'none'; }
   }, 1000);
 }
 
+/* ------------------------ FILE HANDLING ------------------------ */
 function bboxFromGeomPayload(geomPayload){
   const min = {x: Infinity, y: Infinity, z: Infinity};
   const max = {x:-Infinity, y:-Infinity, z:-Infinity};
@@ -171,7 +130,6 @@ async function handleFile(file){
       const { bbox, metrics, geomPayload } = data.result;
       lastMetrics = { ...metrics, bbox };
       el('#statusText').textContent = 'Model loaded. Metrics computed.';
-
       loadGeometryIntoScene(geomPayload);
       centerAndFrame(bbox);
       updateMetricsUI();
@@ -200,7 +158,6 @@ async function handleFile(file){
         }
         lastMetrics = { ...data.result.metrics, bbox };
         el('#statusText').textContent = 'Model loaded. Metrics computed.';
-
         loadGeometryIntoScene(geomPayload);
         centerAndFrame(bbox);
         updateMetricsUI();
@@ -213,6 +170,7 @@ async function handleFile(file){
   }
 }
 
+/* ------------------------ UI METRICS/PRICING ------------------------ */
 function updateMetricsUI(){
   const { volume_mm3, area_mm2, bbox } = lastMetrics || {};
   const f = formatMetrics({ volume_mm3, area_mm2, bbox });
@@ -233,18 +191,222 @@ function recompute(){
   el('#totalOut').textContent = fmt(lastQuote.total) + `  ( ${state.qty} × ${fmt(lastQuote.perUnit)} )`;
 }
 
-// ----- Download Quote with company + customer details
-function downloadQuote(){
-  if(!lastMetrics || !lastQuote){ alert('Upload a model first.'); return; }
+/* ------------------------ CUSTOMER STORAGE ------------------------ */
+function loadCustomerFromStorage(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return;
+    const saved = JSON.parse(raw);
+    if(saved && typeof saved === 'object'){
+      state.customer = { ...state.customer, ...(saved.customer || {}) };
+      state.saveCustomer = saved.saveCustomer !== false; // default true
+    }
+  }catch{}
+}
+function saveCustomerToStorage(){
+  try{
+    const payload = { saveCustomer: state.saveCustomer, customer: state.customer };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  }catch{}
+}
 
-  // Basic nudge if name/email missing (non-blocking)
-  if(!state.customer.name) { state.customer.name = prompt('Customer name (for the quote):', state.customer.name || '') || state.customer.name; }
-  if(!state.customer.email) { state.customer.email = prompt('Customer email (optional):', state.customer.email || '') || state.customer.email; }
+/* ------------------------ CUSTOMER MODAL ------------------------ */
+/**
+ * Opens a modal to collect/update customer details.
+ * Returns a Promise that resolves when the user clicks Continue (and triggers PDF),
+ * or resolves early if the modal is cancelled.
+ */
+function showCustomerModal(){
+  // build modal elements
+  const modal = document.createElement('div');
+  modal.id = 'customerModal';
+  modal.innerHTML = `
+    <div class="wa-backdrop"></div>
+    <div class="wa-modal">
+      <div class="wa-header">
+        <h2>Customer details</h2>
+        <button class="wa-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="wa-body">
+        <div class="wa-grid2">
+          <div class="wa-field">
+            <label>Name</label>
+            <input id="waName" type="text" placeholder="Jane Doe">
+          </div>
+          <div class="wa-field">
+            <label>Company (optional)</label>
+            <input id="waCompany" type="text" placeholder="Client Ltd">
+          </div>
+        </div>
+        <div class="wa-field">
+          <label>Email</label>
+          <input id="waEmail" type="email" placeholder="jane@example.com">
+        </div>
+        <div class="wa-field">
+          <label>Address</label>
+          <input id="waAddress" type="text" placeholder="10 Sample Road">
+        </div>
+        <div class="wa-grid2">
+          <div class="wa-field">
+            <label>City</label>
+            <input id="waCity" type="text" placeholder="Bristol">
+          </div>
+          <div class="wa-field">
+            <label>Postcode</label>
+            <input id="waPostcode" type="text" placeholder="BS1 1AA">
+          </div>
+        </div>
+        <div class="wa-field">
+          <label>Country</label>
+          <input id="waCountry" type="text" value="UK">
+        </div>
 
+        <div class="wa-row">
+          <label class="wa-check">
+            <input id="waSave" type="checkbox">
+            <span>Save customer on this device</span>
+          </label>
+          <button id="waClear" type="button" class="wa-link">Clear saved</button>
+        </div>
+      </div>
+      <div class="wa-footer">
+        <button class="wa-btn wa-secondary" id="waCancel">Cancel</button>
+        <button class="wa-btn wa-primary" id="waContinue">Continue to PDF</button>
+      </div>
+    </div>
+  `;
+  injectModalStyles();
+  document.body.appendChild(modal);
+
+  // Prefill values from state
+  const q = s => modal.querySelector(s);
+  q('#waName').value = state.customer.name || '';
+  q('#waCompany').value = state.customer.company || '';
+  q('#waEmail').value = state.customer.email || '';
+  q('#waAddress').value = state.customer.address || '';
+  q('#waCity').value = state.customer.city || '';
+  q('#waPostcode').value = state.customer.postcode || '';
+  q('#waCountry').value = state.customer.country || 'UK';
+  q('#waSave').checked = !!state.saveCustomer;
+
+  // Wire interactions
+  const close = () => { modal.remove(); };
+  q('.wa-close').addEventListener('click', close);
+  q('#waCancel').addEventListener('click', close);
+  q('.wa-backdrop').addEventListener('click', close);
+  q('#waClear').addEventListener('click', ()=>{
+    localStorage.removeItem(STORAGE_KEY);
+    alert('Saved customer details cleared from this device.');
+  });
+
+  // Update state as user types (and optionally persist)
+  [
+    ['#waName','name'],
+    ['#waCompany','company'],
+    ['#waEmail','email'],
+    ['#waAddress','address'],
+    ['#waCity','city'],
+    ['#waPostcode','postcode'],
+    ['#waCountry','country']
+  ].forEach(([sel, key])=>{
+    q(sel).addEventListener('input', e=>{
+      state.customer[key] = e.target.value.trim();
+      if(state.saveCustomer){ saveCustomerToStorage(); }
+    });
+  });
+  q('#waSave').addEventListener('change', e=>{
+    state.saveCustomer = !!e.target.checked;
+    if(state.saveCustomer) saveCustomerToStorage(); else localStorage.removeItem(STORAGE_KEY);
+  });
+
+  // Continue => validate (soft), save if enabled, then build + open PDF
+  q('#waContinue').addEventListener('click', ()=>{
+    // minimal friendly validation
+    if(!state.customer.name){
+      if(!confirm('Customer name is empty. Continue anyway?')) return;
+    }
+    if(state.saveCustomer) saveCustomerToStorage();
+    close();
+    openQuotePdf(); // generate PDF after modal closes
+  });
+
+  // focus first field
+  setTimeout(()=> q('#waName').focus(), 0);
+}
+
+/* Modal styles (scoped) */
+function injectModalStyles(){
+  if(document.getElementById('wa-modal-style')) return;
+  const style = document.createElement('style');
+  style.id = 'wa-modal-style';
+  style.textContent = `
+  .wa-backdrop{
+    position:fixed; inset:0; background:rgba(10,13,18,.55); backdrop-filter:blur(2px);
+    z-index:1000;
+  }
+  .wa-modal{
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:1001;
+    pointer-events:none;
+  }
+  .wa-modal > .wa-header, .wa-modal > .wa-body, .wa-modal > .wa-footer { pointer-events:auto; }
+  .wa-modal > .wa-header{ display:none } /* not used directly */
+  .wa-modal > .wa-body{ display:none }   /* not used directly */
+  .wa-modal > .wa-footer{ display:none } /* not used directly */
+  .wa-modal > .wa-container{ pointer-events:auto }
+  .wa-modal .wa-modal{
+    pointer-events:auto;
+  }
+  .wa-modal > .wa-modal { display:none } /* suppress */
+  .wa-modal > .wa-modal * { pointer-events:auto }
+
+  .wa-modal .wa-modal, .wa-modal .wa-card { pointer-events:auto }
+  .wa-modal .wa-modal .wa-card { pointer-events:auto }
+
+  .wa-modal > .wa-modal { display:flex }
+
+  .wa-modal .wa-modal{
+    width: min(680px, calc(100% - 32px));
+    background: #0e151d;
+    color: #e8eef4;
+    border:1px solid #232a34;
+    border-radius:16px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.5);
+    display:flex; flex-direction:column;
+    pointer-events:auto;
+  }
+  .wa-header{
+    display:flex; align-items:center; justify-content:space-between; gap:8px;
+    padding:14px 16px; border-bottom:1px solid #232a34;
+  }
+  .wa-header h2{ margin:0; font-size:16px; font-weight:600; color:#9aa5b1; }
+  .wa-close{
+    background:transparent; border:none; color:#9aa5b1; font-size:22px; line-height:1; cursor:pointer;
+  }
+  .wa-body{ padding:14px 16px; }
+  .wa-grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .wa-field label{ display:block; font-size:12px; color:#9aa5b1; margin-bottom:6px; }
+  .wa-field input{
+    width:100%; padding:10px 12px; border-radius:12px; border:1px solid #232a34; background:#0f141b; color:#e8eef4;
+  }
+  .wa-row{ display:flex; align-items:center; justify-content:space-between; margin-top:8px; }
+  .wa-check{ display:flex; align-items:center; gap:8px; font-size:14px; color:#e8eef4; }
+  .wa-link{ background:transparent; border:none; color:#4cc9f0; cursor:pointer; padding:4px 0; }
+  .wa-footer{ padding:14px 16px; border-top:1px solid #232a34; display:flex; gap:8px; justify-content:flex-end; }
+  .wa-btn{
+    border:1px solid #232a34; border-radius:12px; padding:10px 14px; cursor:pointer; font-weight:600;
+  }
+  .wa-secondary{ background:#121820; color:#e8eef4; }
+  .wa-primary{ background:#1b2735; color:#e8eef4; }
+  @media (max-width:600px){ .wa-grid2{ grid-template-columns:1fr; } }
+  `;
+  document.head.appendChild(style);
+}
+
+/* ------------------------ PDF BUILDER ------------------------ */
+function openQuotePdf(){
   const today = new Date().toISOString().slice(0,10);
   const fileName = el('#fileName').textContent || 'model';
 
-  // Company details
   const company = {
     name: 'Weston Additive',
     vat: '0000000',
@@ -264,12 +426,10 @@ function downloadQuote(){
   const tech = (state.tech || '').toUpperCase();
   const hours = lastQuote.hours.toFixed(2);
 
-  // Viewer snapshot
   let snap = '';
   const canvas = document.querySelector('#viewerRoot canvas');
   try { snap = canvas ? canvas.toDataURL('image/png') : ''; } catch(e){}
 
-  // Compose customer address block
   const c = state.customer;
   const billToLines = [
     c.name || '',
@@ -392,8 +552,7 @@ function downloadQuote(){
   win.document.open(); win.document.write(html); win.document.close(); win.focus();
 }
 
-// Viewer init + resize
+/* ------------------------ INIT ------------------------ */
 initViewer(document.getElementById('viewerRoot'));
 new ResizeObserver(()=> setSize()).observe(document.getElementById('viewerRoot'));
-
 bindUI();
