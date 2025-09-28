@@ -425,7 +425,7 @@ function openQuotePdf(){
     c.country || ''
   ].filter(Boolean).join('<br>');
 
-  // IMPORTANT: no auto window.print() script inside this HTML
+  // NOTE: No auto window.print() in here.
   const html = `<!doctype html>
 <html>
 <head>
@@ -530,37 +530,89 @@ function openQuotePdf(){
 </body>
 </html>`;
 
-  // Print via hidden iframe (reliable across browsers)
+  showPrintOverlay(html);
+}
+
+function showPrintOverlay(html){
+  // Create Blob URL for the printable HTML
   const blob = new Blob([html], { type: 'text/html' });
   const url = URL.createObjectURL(blob);
 
-  const iframe = document.createElement('iframe');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  document.body.appendChild(iframe);
+  // Build overlay with iframe + buttons
+  const overlay = document.createElement('div');
+  overlay.id = 'wa-print-overlay';
+  overlay.innerHTML = `
+    <div class="wa-print-backdrop"></div>
+    <div class="wa-print-panel">
+      <div class="wa-print-header">
+        <h3>Printable quote preview</h3>
+        <button class="wa-x" aria-label="Close">&times;</button>
+      </div>
+      <div class="wa-print-body">
+        <iframe id="wa-print-frame" src="${url}" title="Quote preview"></iframe>
+      </div>
+      <div class="wa-print-footer">
+        <button id="wa-print-btn" class="wa-btn">Print</button>
+        <a id="wa-open-tab" class="wa-link" href="${url}" target="_blank" rel="noopener">Open in new tab</a>
+      </div>
+    </div>
+  `;
+  injectPrintStyles();
+  document.body.appendChild(overlay);
 
-  iframe.onload = () => {
-    try {
-      // In some browsers, waiting a tick ensures layout is ready before printing
-      setTimeout(() => {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-      }, 50);
-    } finally {
-      // cleanup
-      setTimeout(() => {
-        URL.revokeObjectURL(url);
-        iframe.remove();
-      }, 1000);
-    }
+  const frame = overlay.querySelector('#wa-print-frame');
+  const close = () => {
+    URL.revokeObjectURL(url);
+    overlay.remove();
   };
 
-  iframe.src = url;
+  overlay.querySelector('.wa-x').addEventListener('click', close);
+  overlay.querySelector('.wa-print-backdrop').addEventListener('click', close);
+
+  // User-gesture Print button (most reliable)
+  overlay.querySelector('#wa-print-btn').addEventListener('click', ()=>{
+    try{
+      frame.contentWindow.focus();
+      frame.contentWindow.print();
+    }catch(e){
+      alert('Print dialog could not be opened automatically. Use "Open in new tab" and print there.');
+    }
+  });
 }
+
+function injectPrintStyles(){
+  if(document.getElementById('wa-print-style')) return;
+  const style = document.createElement('style');
+  style.id = 'wa-print-style';
+  style.textContent = `
+  .wa-print-backdrop{
+    position:fixed; inset:0; background:rgba(10,13,18,.55); backdrop-filter:blur(2px); z-index:9998;
+  }
+  .wa-print-panel{
+    position:fixed; inset:5vh 5vw auto 5vw; bottom:auto; z-index:9999;
+    background:#0e151d; color:#e8eef4; border:1px solid #232a34; border-radius:16px;
+    box-shadow:0 10px 30px rgba(0,0,0,.5); display:flex; flex-direction:column; max-height:90vh;
+  }
+  .wa-print-header{ display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid #232a34; }
+  .wa-print-header h3{ margin:0; font-size:16px; color:#9aa5b1; }
+  .wa-x{ background:transparent; border:none; color:#9aa5b1; font-size:22px; cursor:pointer; }
+  .wa-print-body{ padding:10px; }
+  #wa-print-frame{
+    width: min(900px, calc(100vw - 12vw));
+    height: min(70vh, 1200px);
+    background:#fff; border:1px solid #232a34; border-radius:12px;
+  }
+  .wa-print-footer{ display:flex; gap:12px; justify-content:flex-end; padding:12px 14px; border-top:1px solid #232a34; }
+  .wa-btn{ border:1px solid #232a34; border-radius:12px; padding:10px 14px; cursor:pointer; font-weight:600; background:#1b2735; color:#e8eef4; }
+  .wa-link{ color:#4cc9f0; text-decoration:none; align-self:center; }
+  @media (max-width: 700px){
+    .wa-print-panel{ inset:2vh 2vw; }
+    #wa-print-frame{ width: calc(100vw - 8vw); height: 60vh; }
+  }
+  `;
+  document.head.appendChild(style);
+}
+
 
 /* ------------------------ INIT ------------------------ */
 initViewer(document.getElementById('viewerRoot'));
