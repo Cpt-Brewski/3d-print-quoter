@@ -7,7 +7,7 @@ let scene, camera, renderer, controls, modelGroup, rootEl;
 export function initViewer(root){
   rootEl = root;
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0b0f14);
+  scene.background = new THREE.Color(0x808080);
   camera = new THREE.PerspectiveCamera(50, root.clientWidth/root.clientHeight, 0.1, 10000);
   camera.position.set(120,100,140);
 
