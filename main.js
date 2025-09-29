@@ -596,8 +596,8 @@ function injectPrintStyles(){
   .wa-x{ background:transparent; border:none; color:#9aa5b1; font-size:22px; cursor:pointer; }
   .wa-print-body{ padding:10px; }
   #wa-print-frame{
-    width: 800px;  /* Fixed width */
-    height: 600px; /* Fixed height */
+    width: 850px;  /* Fixed width */
+    height: 900px; /* Fixed height */
     background:#fff; 
     border:1px solid #232a34; 
     border-radius:12px;
