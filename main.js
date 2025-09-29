@@ -78,6 +78,48 @@ function onUIChange(){
   recompute();
 }
 
+/* ------------------------ DYNAMIC LAYER HEIGHT OPTIONS ------------------------ */
+function updateLayerOptions() {
+  const layerSel = el('#layerSel');
+  layerSel.innerHTML = ''; // Clear the current options
+  
+  // Define the layer height options for each technology
+  const layerOptions = {
+    fdm: [
+      { value: '0.3', label: '0.3 mm' },
+      { value: '0.2', label: '0.2 mm' },
+      { value: '0.1', label: '0.1 mm' }
+    ],
+    sla: [
+      { value: '0.1', label: '0.1 mm' },
+      { value: '0.05', label: '0.05 mm' },
+      { value: '0.025', label: '0.025 mm' }
+    ],
+    sls: [
+      { value: '0.15', label: '0.15 mm' },
+      { value: '0.1', label: '0.1 mm' },
+      { value: '0.08', label: '0.08 mm' }
+    ]
+  };
+
+  // Get the technology selected by the user
+  const selectedTech = state.tech || 'fdm'; // Default to 'fdm' if nothing is selected
+
+  // Add the appropriate layer height options based on selected technology
+  layerOptions[selectedTech].forEach(option => {
+    const opt = document.createElement('option');
+    opt.value = option.value;
+    opt.textContent = option.label;
+    layerSel.appendChild(opt);
+  });
+
+  // Re-select the currently selected layer height, if possible
+  if (!layerSel.querySelector(`[value="${state.layer}"]`)) {
+    state.layer = layerOptions[selectedTech][0].value; // Default to the first option if the previous value is not available
+  }
+  layerSel.value = state.layer; // Update the selected value in the dropdown
+}
+
 
 function resetAll(){
   lastMetrics = null; lastQuote = null;
