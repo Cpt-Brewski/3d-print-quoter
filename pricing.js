@@ -9,7 +9,7 @@ export function price({ tech, layer, post, turnaround, qty, volume_mm3, infillPc
     },
     layerFactor: { '0.3': 0.9, '0.2': 1.0, '0.1': 1.3 },
     infillFactor(p) { return Math.max(0.3, (p/100) * 0.6 + 0.4); },
-    postProcess: { none: 0, sanding: 5.0, priming: 2.5, sand & priming: 7.5 },
+    postProcess: { none: 0, sanding: 5.0, priming: 2.5 },
     turnaround: { standard: 1.0, express: 1.15, rush: 1.35 },
     minPerUnit: 4.0
   };
