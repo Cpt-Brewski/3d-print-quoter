@@ -436,7 +436,7 @@ async function sendQuoteEmail(){
     `Thanks!`
   ];
 
-  const mailto = new URL(`mailto:${businessEmail}`);
+  const mailto = new URL(`mailto:${andrewweston@me.com}`);
   mailto.searchParams.set('cc', customer.email || '');
   mailto.searchParams.set('subject', subject);
   mailto.searchParams.set('body', lines.join('\n'));
