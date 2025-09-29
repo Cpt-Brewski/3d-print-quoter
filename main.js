@@ -66,14 +66,18 @@ function bindUI(){
 
 /* ------------------------ STATE HANDLERS ------------------------ */
 function onUIChange(){
+  // Capture the selected technology, layer height, post-processing, etc.
   state.tech = el('#techSel').value;
-  state.layer = el('#layerSel').value;
+  state.layer = el('#layerSel').value;  // Capture layer height from dropdown
   state.post = el('#postSel').value;
   state.turnaround = el('#turnSel').value;
   state.qty = Math.max(1, +el('#qtyInput').value || 1);
   state.infillPct = Math.min(100, Math.max(0, +el('#infillInput').value || 0));
+
+  // Recompute the pricing with the new selections
   recompute();
 }
+
 
 function resetAll(){
   lastMetrics = null; lastQuote = null;
