@@ -20,6 +20,9 @@ export function initViewer(root){
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
 
+   // Disable zoom
+  controls.enableZoom = false;
+
   const grid = new THREE.GridHelper(500, 50, 0x2a3340, 0x1c2430);
   grid.material.opacity = 0.3; grid.material.transparent = true;
   scene.add(grid);
