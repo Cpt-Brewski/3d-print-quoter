@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Instant 3D Print Quoter</title>
+  <link rel="icon" href="data:,">
+  <style>
+    :root {
+      --bg: #0f1216; --panel:#151a21; --muted:#9aa5b1; --text:#e8eef4;
+      --border:#232a34; --accent:#4cc9f0;
+    }
+    *{box-sizing:border-box} html,body{height:100%}
+    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:linear-gradient(180deg,#ffffff,#ffffff);color:var(--text)}
+    header{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 22px;border-bottom:1px solid var(--border);background:#222831;backdrop-filter:blur(6px);position:sticky;top:0;z-index:10}
+    header h1{font-size:18px;margin:0;font-weight:600}
+    .btn{border:1px solid var(--border);background:#121820;color:var(--text);padding:9px 14px;border-radius:12px;cursor:pointer;font-weight:600}
+    .wrapper{display:grid;grid-template-columns: 650px 1fr;gap:16px;height:calc(100% - 66px)}
+    .panel{background:var(--panel);border:1px solid var(--border);border-radius:16px;margin:16px}
+    .panel.right {height: 850px;max-height: 850px;}
+    .panel.left {height: 850px;max-height: 850px;}
+    .left{padding:18px;overflow:auto} .right{display:flex;flex-direction:column;overflow:hidden}
+    .field{margin-bottom:14px} .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+    .field input[type='number'], .field select{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);background:#0f141b;color:var(--text)}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .drop{border:2px dashed #2d3748;border-radius:14px;padding:12px;text-align:center;background:#0e151d;color:var(--muted)} .drop.dragover{border-color:var(--accent);color:var(--text);background:rgba(76,201,240,.06)}
+    .metrics,.breakdown{border-top:1px dashed var(--border);margin-top:10px;padding-top:12px}
+    .metrics dl,.breakdown dl{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:0}
+    .metrics dd,.breakdown dd{margin:0;text-align:right}
+    .viewer-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;border-bottom:1px solid var(--border)}
+    #viewerRoot{width:100%;height:100%}
+    .pill{font-size:11px;padding:4px 8px;border-radius:999px;background:#0b1220;border:1px solid var(--border)}
+    .countdown{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(10,13,18,.75);backdrop-filter:blur(3px);z-index:5;font-size:28px;font-weight:800;color:var(--text)}
+    @media(max-width:1100px){.wrapper{grid-template-columns:1fr}.left{order:1}.right{order:2;height:60vh}.panel{margin:10px}}
+  </style>
+</head>
+<body>
+<header>
+  <div style="display:flex;align-items:center;gap:10px">
+    <div style="width:28px;height:28px;border-radius:8px;background:radial-gradient(circle at 30% 30%, #4cc9f0, #b5179e)"></div>
+    <h1>Instant 3D Print Quoter</h1>
+  </div>
+  <div style="display:flex;gap:10px">
+    <button id="downloadQuoteBtn" class="btn">Download PDF quote</button>
+    <button id="resetBtn" class="btn">Reset</button>
+  </div>
+</header>
+
+<div class="wrapper">
+  <section class="panel left">
+    <div class="field">
+      <label>Upload STL or 3MF</label>
+      <input id="fileInput" type="file" accept=".stl,.3mf" />
+    </div>
+    <div id="dropZone" class="drop">or drag & drop here</div>
+
+    <div class="grid-2" style="margin-top:16px">
+      <div class="field">
+        <label>Technology</label>
+        <select id="techSel">
+          <option value="fdm">FDM (filament)</option>
+          <option value="sla">SLA (resin)</option>
+          <option value="sls">SLS (nylon)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Layer height</label>
+        <select id="layerSel">
+          <option value="0.3">0.30 mm</option>
+          <option value="0.2" selected>0.20 mm</option>
+          <option value="0.1">0.10 mm</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="field" id="infillField">
+        <label>Infill % (FDM)</label>
+        <input id="infillInput" type="number" min="0" max="100" step="5" value="20" />
+      </div>
+      <div class="field">
+        <label>Post‑processing</label>
+        <select id="postSel">
+          <option value="none" selected>None</option>
+          <option value="sanding">Sanding</option>
+          <option value="priming">Priming</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="field">
+        <label>Turnaround</label>
+        <select id="turnSel">
+          <option value="standard" selected>Standard</option>
+          <option value="express">Express</option>
+          <option value="rush">Rush</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Quantity</label>
+        <input id="qtyInput" type="number" min="1" step="1" value="1" />
+      </div>
+    </div>
+
+    <div class="metrics">
+      <h3 style="margin:6px 0 10px; font-size:14px; color:var(--muted);">Geometry</h3>
+      <dl>
+        <dt>Volume</dt><dd id="volOut">—</dd>
+        <dt>Surface area</dt><dd id="areaOut">—</dd>
+        <dt>Bounding box</dt><dd id="bboxOut">—</dd>
+      </dl>
+    </div>
+
+    <div class="breakdown">
+      <h3 style="margin:10px 0; font-size:14px; color:var(--muted);">Price breakdown</h3>
+      <dl>
+        <dt>Material</dt><dd id="materialOut">—</dd>
+        <dt>Machine time</dt><dd id="machineOut">—</dd>
+        <dt>Setup</dt><dd id="setupOut">—</dd>
+        <dt>Finishing</dt><dd id="finishOut">—</dd>
+        <dt>Turnaround</dt><dd id="turnOut">—</dd>
+        <dt>Est. hours</dt><dd id="hoursOut">—</dd>
+      </dl>
+      <div style="display:flex;align-items:center;justify-content:space-between;font-size:20px;font-weight:700;padding-top:12px">
+        <span>Total</span><span id="totalOut">—</span>
+      </div>
+      <div style="color:var(--muted);font-size:12px;margin-top:6px">All prices in £ GBP. Estimates exclude VAT/shipping.</div>
+    </div>
+  </section>
+
+  <section class="panel right">
+    <div class="viewer-header">
+      <div style="display:flex;align-items:center;gap:10px;color:var(--muted)">
+        <span class="pill" id="fileName">No file</span>
+        <span id="statusText">Upload a model to preview & quote.</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;color:var(--muted)"><span class="pill" id="unitPill">Units: mm</span></div>
+    </div>
+    <div style="position:relative;flex:1">
+      <div class="countdown" id="countdown">3</div>
+      <div id="viewerRoot"></div>
+    </div>
+  </section>
+</div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>
