@@ -3,7 +3,7 @@ export function price({ tech, layer, post, turnaround, qty, volume_mm3, infillPc
   const PRICING = {
     baseSetup: 3.5,
     tech: {
-      fdm: { material: 0.07, timePerCm3: 0.20, hourly: 1.0 },
+      fdm: { material: 0.08, timePerCm3: 0.20, hourly: 1.0 },
       sla: { material: 0.18, timePerCm3: 0.30, hourly: 4.0 },
       sls: { material: 0.30, timePerCm3: 0.35, hourly: 10.0 }
     },
