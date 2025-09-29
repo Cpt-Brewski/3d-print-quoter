@@ -597,7 +597,7 @@ function injectPrintStyles(){
   .wa-print-body{ padding:10px; }
   #wa-print-frame{
     width: 850px;  /* Fixed width */
-    height: 900px; /* Fixed height */
+    height: 1100px; /* Fixed height */
     background:#fff; 
     border:1px solid #232a34; 
     border-radius:12px;
