@@ -596,11 +596,9 @@ function injectPrintStyles(){
   .wa-x{ background:transparent; border:none; color:#9aa5b1; font-size:22px; cursor:pointer; }
   .wa-print-body{ padding:10px; }
   #wa-print-frame{
-    width: 850px;  /* Fixed width */
-    height: 1100px; /* Fixed height */
-    background:#fff; 
-    border:1px solid #232a34; 
-    border-radius:12px;
+    width: min(900px, calc(100vw - 12vw));
+    height: min(70vh, 1200px);
+    background:#fff; border:1px solid #232a34; border-radius:12px;
   }
   .wa-print-footer{ display:flex; gap:12px; justify-content:flex-end; padding:12px 14px; border-top:1px solid #232a34; }
   .wa-btn{ border:1px solid #232a34; border-radius:12px; padding:10px 14px; cursor:pointer; font-weight:600; background:#1b2735; color:#e8eef4; }
