@@ -13,7 +13,15 @@ export function price({ tech, layer, post, turnaround, qty, volume_mm3, infillPc
       sls: { '0.15': 1.0, '0.1': 1.0, '0.08': 1.2 }
     },
     infillFactor(p) { return Math.max(0.3, (p / 100) * 0.6 + 0.4); },
-    postProcess: { none: 0, sanding: 5.0, priming: 2.5 },
+     // New post-processing options added here
+    postProcess: {
+      none: 0,
+      sanding: 5.0,
+      priming: 2.5,
+      painting: 7.0,    // New option
+      assembly: 10.0,   // New option
+      texturing: 6.0    // New option
+    },
     turnaround: { standard: 1.0, express: 1.15, rush: 1.35 },
     minPerUnit: 4.0
   };
