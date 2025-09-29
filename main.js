@@ -62,6 +62,9 @@ function bindUI(){
 
   // Load saved customer (if any) at startup
   loadCustomerFromStorage();
+
+  // Initialize the layer options based on the default technology
+  updateLayerOptions();
 }
 
 /* ------------------------ STATE HANDLERS ------------------------ */
