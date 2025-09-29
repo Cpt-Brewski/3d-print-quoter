@@ -7,7 +7,7 @@ let scene, camera, renderer, controls, modelGroup, rootEl;
 export function initViewer(root){
   rootEl = root;
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x808080);
+  scene.background = new THREE.Color(0x0b0f14);
   camera = new THREE.PerspectiveCamera(50, root.clientWidth/root.clientHeight, 0.1, 10000);
   camera.position.set(120,100,140);
 
@@ -15,7 +15,6 @@ export function initViewer(root){
   renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(root.clientWidth, root.clientHeight);
-  renderer.setClearColor(0x808080, 1); // background
   root.appendChild(renderer.domElement);
 
   controls = new OrbitControls(camera, renderer.domElement);
@@ -24,7 +23,6 @@ export function initViewer(root){
   const grid = new THREE.GridHelper(500, 50, 0x2a3340, 0x1c2430);
   grid.material.opacity = 0.3; grid.material.transparent = true;
   scene.add(grid);
-  grid.visible = false;
 
   const light1 = new THREE.DirectionalLight(0xffffff, 1.0); light1.position.set(1,1,1);
   const light2 = new THREE.DirectionalLight(0xffffff, 0.6); light2.position.set(-1,2,-1);
