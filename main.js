@@ -39,12 +39,12 @@ function bindUI(){
   el('#resetBtn').addEventListener('click', resetAll);
 
   // On click, open modal first (do not immediately print)
-  el('#downloadQuoteBtn').addEventListener('click', async ()=>{
+  el('#emailQuoteBtn').addEventListener('click', async ()=>{
     if(!lastMetrics || !lastQuote){
       alert('Upload a model first.');
       return;
     }
-    await showCustomerModal(); // opens modal; proceeds to PDF on "Continue"
+    await showCustomerModal(); // opens modal; proceeds to EMAIL on "Send"
   });
 
   const dropZone = el('#dropZone');
@@ -270,7 +270,7 @@ function showCustomerModal(){
       </div>
       <div class="wa-footer">
         <button class="wa-btn wa-secondary" id="waCancel">Cancel</button>
-        <button class="wa-btn wa-primary" id="waContinue">Continue to PDF</button>
+        <button class="wa-btn wa-primary" id="waContinue">Send email</button>
       </div>
     </div>
   `;
@@ -320,13 +320,14 @@ function showCustomerModal(){
   });
 
   // Continue to PDF
-  q('#waContinue').addEventListener('click', ()=>{
-    if(!state.customer.name){
-      if(!confirm('Customer name is empty. Continue anyway?')) return;
+  q('#waContinue').addEventListener('click', async ()=>{
+    if(!state.customer.email){
+      alert('Please enter the customer’s email so we can CC them.');
+      return;
     }
     if(state.saveCustomer) saveCustomerToStorage();
     close();
-    openQuotePdf();
+    await sendQuoteEmail();
   });
 
   // focus first input
@@ -387,228 +388,61 @@ function injectModalStyles(){
   document.head.appendChild(style);
 }
 
-
-/* ------------------------ PDF BUILDER ------------------------ */
-async function openQuotePdf(){
-  const today = new Date().toISOString().slice(0,10);
+async function sendQuoteEmail(){
+  const businessEmail = 'quotes@yourdomain.co.uk'; // <-- put your address here
+  const customer = state.customer || {};
   const fileName = document.querySelector('#fileName').textContent || 'model';
+  const today = new Date().toISOString().slice(0,10);
 
-  const company = {
-    name: 'Weston Additive',
-    vat: '0000000',
-    address: '123 Example Street, Exampletown, EX1 2YZ, UK'
-  };
-
-  const vatRate = 0.20;
-  const subtotal = lastQuote.total;
-  const vat = subtotal * vatRate;
-  const grandTotal = subtotal + vat;
-
+  // Pull formatted metrics
   const geom = {
     volume: formatMetrics({ volume_mm3: lastMetrics.volume_mm3 }).volume,
     area: formatMetrics({ area_mm2: lastMetrics.area_mm2 }).area,
     bbox: formatMetrics({ bbox: lastMetrics.bbox }).bbox
   };
-  const tech = (state.tech || '').toUpperCase();
-  const hours = lastQuote.hours.toFixed(2);
 
-  const snap = await getSnapshot();
+  const subject = `Quote request – ${fileName} – ${today}`;
+  const lines = [
+    `Hello,`,
+    ``,
+    `Please see the details for this 3D printing quote:`,
+    ``,
+    `• Part: ${fileName}`,
+    `• Technology: ${String(state.tech || '').toUpperCase()}`,
+    `• Layer height: ${state.layer} mm`,
+    `• Infill: ${state.tech==='fdm' ? state.infillPct + '%' : 'N/A'}`,
+    `• Post-processing: ${state.post}`,
+    `• Turnaround: ${state.turnaround.toUpperCase()}`,
+    `• Quantity: ${state.qty}`,
+    ``,
+    `Geometry:`,
+    `• Volume: ${geom.volume}`,
+    `• Surface area: ${geom.area}`,
+    `• Bounding box: ${geom.bbox}`,
+    ``,
+    `Pricing:`,
+    `• Per unit: £${lastQuote.perUnit.toFixed(2)}`,
+    `• Total (ex VAT): £${lastQuote.total.toFixed(2)}`,
+    `• Est. hours: ${lastQuote.hours.toFixed(2)} h`,
+    ``,
+    `Customer details:`,
+    `• Name: ${customer.name || '-'}`,
+    `• Company: ${customer.company || '-'}`,
+    `• Email: ${customer.email || '-'}`,
+    `• Address: ${[customer.address, [customer.city, customer.postcode].filter(Boolean).join(' '), customer.country].filter(Boolean).join(', ') || '-'}`,
+    ``,
+    `Please reply with confirmation or any questions.`,
+    ``,
+    `Thanks!`
+  ];
 
-  const c = state.customer || {};
-  const billToLines = [
-    c.name || '',
-    c.company || '',
-    c.address || '',
-    [c.city, c.postcode].filter(Boolean).join(' ') || '',
-    c.country || ''
-  ].filter(Boolean).join('<br>');
+  const mailto = new URL(`mailto:${businessEmail}`);
+  mailto.searchParams.set('cc', customer.email || '');
+  mailto.searchParams.set('subject', subject);
+  mailto.searchParams.set('body', lines.join('\n'));
 
-  // NOTE: No auto window.print() in here.
-  const html = `<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>Quote - ${fileName}</title>
-<style>
-  :root{ --ink:#0b1220; --muted:#64748b; --line:#e5e7eb; }
-  @page { size: A4; margin: 18mm; }
-  body{ font-family: system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; color:var(--ink); margin:0; }
-  .wrap{ max-width:800px; margin:0 auto; }
-  header{ display:flex; justify-content:space-between; gap:16px; margin-bottom:18px; }
-  .brand{ display:flex; flex-direction:column; gap:4px; }
-  .logo{ width:32px; height:32px; border-radius:8px; background: radial-gradient(circle at 30% 30%, #4cc9f0, #b5179e); }
-  h1{ font-size:22px; margin:0; }
-  .muted{ color:var(--muted); }
-  .meta{ text-align:right; font-size:13px; }
-  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:14px 0 6px; }
-  .card{ border:1px solid var(--line); border-radius:12px; padding:12px; }
-  .card h3{ margin:0 0 8px; font-size:14px; color:var(--muted); font-weight:600; }
-  table{ width:100%; border-collapse:collapse; margin-top:10px; }
-  th, td{ border:1px solid var(--line); padding:10px 8px; font-size:14px; }
-  th{ background:#f8fafc; text-align:left; }
-  td.qty, td.unit, td.total{ text-align:right; white-space:nowrap; }
-  .totals{ width:340px; margin-left:auto; margin-top:12px; border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-  .totals td{ border:none; padding:8px 10px; }
-  .totals tr+tr td{ border-top:1px solid var(--line); }
-  .grand{ font-weight:700; }
-  .snapshot img{ max-width:200px; border:1px solid var(--line); border-radius:8px; }
-  footer{ margin-top:20px; font-size:12px; color:var(--muted); line-height:1.4; }
-</style>
-</head>
-<body>
-  <div class="wrap">
-    <header>
-      <div class="brand">
-        <div class="logo"></div>
-        <div><h1>${company.name}</h1></div>
-        <div class="muted">${company.address}</div>
-        <div class="muted">VAT Reg: ${company.vat}</div>
-        <div class="muted">Generated ${today}</div>
-      </div>
-      <div class="meta">
-        <div><strong>Quote #</strong> Q-${Math.floor(Math.random()*899999+100000)}</div>
-        <div><strong>Technology</strong> ${tech}</div>
-        <div><strong>Est. hours</strong> ${hours} h</div>
-      </div>
-    </header>
-
-    <div class="grid">
-      <div class="card">
-        <h3>Bill To</h3>
-        <div>${billToLines || '<span class="muted">No customer details provided</span>'}</div>
-        ${c.email ? `<div class="muted" style="margin-top:6px">Email: ${c.email}</div>` : ''}
-      </div>
-      <div class="card snapshot">
-        <h3>Preview</h3>
-        ${snap ? `<img src="${snap}" alt="Model preview">` : `<div class="muted">No preview available</div>`}
-      </div>
-    </div>
-
-    <div class="grid">
-      <div class="card">
-        <h3>Part</h3>
-        <div><strong>${fileName}</strong></div>
-        <div class="muted">Layer: ${state.layer} mm · Turnaround: ${state.turnaround.toUpperCase()} · Post: ${state.post}</div>
-      </div>
-      <div class="card">
-        <h3>Geometry</h3>
-        <div>Volume: <strong>${geom.volume}</strong></div>
-        <div>Surface area: <strong>${geom.area}</strong></div>
-        <div>Bounding box: <strong>${geom.bbox}</strong></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>Line items</h3>
-      <table>
-        <thead><tr><th>Description</th><th class="qty">Qty</th><th class="unit">Unit</th><th class="total">Total</th></tr></thead>
-        <tbody>
-          <tr>
-            <td>3D print — ${fileName}</td>
-            <td class="qty">${state.qty}</td>
-            <td class="unit">${fmt(lastQuote.perUnit)}</td>
-            <td class="total">${fmt(subtotal)}</td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="totals">
-        <table>
-          <tr><td>Subtotal</td><td style="text-align:right">${fmt(subtotal)}</td></tr>
-          <tr><td>VAT (${(vatRate*100).toFixed(0)}%)</td><td style="text-align:right">${fmt(vat)}</td></tr>
-          <tr class="grand"><td>Grand total</td><td style="text-align:right">${fmt(grandTotal)}</td></tr>
-        </table>
-      </div>
-    </div>
-
-    <footer>
-      ${company.name} · VAT Reg: ${company.vat} · ${company.address}<br>
-      Prices in GBP. Estimates exclude shipping. Valid for 14 days unless otherwise stated.
-    </footer>
-  </div>
-</body>
-</html>`;
-
-  showPrintOverlay(html);
-}
-
-function showPrintOverlay(html){
-  // Create Blob URL for the printable HTML
-  const blob = new Blob([html], { type: 'text/html' });
-  const url = URL.createObjectURL(blob);
-
-  // Build overlay with iframe + buttons
-  const overlay = document.createElement('div');
-  overlay.id = 'wa-print-overlay';
-  overlay.innerHTML = `
-    <div class="wa-print-backdrop"></div>
-    <div class="wa-print-panel">
-      <div class="wa-print-header">
-        <h3>Printable quote preview</h3>
-        <button class="wa-x" aria-label="Close">&times;</button>
-      </div>
-      <div class="wa-print-body">
-        <iframe id="wa-print-frame" src="${url}" title="Quote preview"></iframe>
-      </div>
-      <div class="wa-print-footer">
-        <button id="wa-print-btn" class="wa-btn">Print</button>
-        <a id="wa-open-tab" class="wa-link" href="${url}" target="_blank" rel="noopener">Open in new tab</a>
-      </div>
-    </div>
-  `;
-  injectPrintStyles();
-  document.body.appendChild(overlay);
-
-  const frame = overlay.querySelector('#wa-print-frame');
-  const close = () => {
-    URL.revokeObjectURL(url);
-    overlay.remove();
-  };
-
-  overlay.querySelector('.wa-x').addEventListener('click', close);
-  overlay.querySelector('.wa-print-backdrop').addEventListener('click', close);
-
-  // User-gesture Print button (most reliable)
-  overlay.querySelector('#wa-print-btn').addEventListener('click', ()=>{
-    try{
-      frame.contentWindow.focus();
-      frame.contentWindow.print();
-    }catch(e){
-      alert('Print dialog could not be opened automatically. Use "Open in new tab" and print there.');
-    }
-  });
-}
-
-function injectPrintStyles(){
-  if(document.getElementById('wa-print-style')) return;
-  const style = document.createElement('style');
-  style.id = 'wa-print-style';
-  style.textContent = `
-  .wa-print-backdrop{
-    position:fixed; inset:0; background:rgba(10,13,18,.55); backdrop-filter:blur(2px); z-index:9998;
-  }
-  .wa-print-panel{
-    position:fixed; inset:5vh 5vw auto 5vw; bottom:auto; z-index:9999;
-    background:#0e151d; color:#e8eef4; border:1px solid #232a34; border-radius:16px;
-    box-shadow:0 10px 30px rgba(0,0,0,.5); display:flex; flex-direction:column; max-height:90vh;
-  }
-  .wa-print-header{ display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid #232a34; }
-  .wa-print-header h3{ margin:0; font-size:16px; color:#9aa5b1; }
-  .wa-x{ background:transparent; border:none; color:#9aa5b1; font-size:22px; cursor:pointer; }
-  .wa-print-body{ padding:10px; }
-  #wa-print-frame{
-    width: min(900px, calc(100vw - 12vw));
-    height: min(70vh, 1200px);
-    background:#fff; border:1px solid #232a34; border-radius:12px;
-  }
-  .wa-print-footer{ display:flex; gap:12px; justify-content:flex-end; padding:12px 14px; border-top:1px solid #232a34; }
-  .wa-btn{ border:1px solid #232a34; border-radius:12px; padding:10px 14px; cursor:pointer; font-weight:600; background:#1b2735; color:#e8eef4; }
-  .wa-link{ color:#4cc9f0; text-decoration:none; align-self:center; }
-  @media (max-width: 700px){
-    .wa-print-panel{ inset:2vh 2vw; }
-    #wa-print-frame{ width: calc(100vw - 8vw); height: 60vh; }
-  }
-  `;
-  document.head.appendChild(style);
+  // Open the user's email client with To + CC + Subject + Body prefilled
+  window.location.href = mailto.toString();
 }
 
 
