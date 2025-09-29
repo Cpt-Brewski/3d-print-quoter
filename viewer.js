@@ -62,18 +62,29 @@ export function loadGeometryIntoScene(geomPayload){
 }
 
 // Keep your existing centerAndFrame(...)
-export function centerAndFrame(bbox){
-  const box = new THREE.Box3(new THREE.Vector3(bbox.min.x,bbox.min.y,bbox.min.z), new THREE.Vector3(bbox.max.x,bbox.max.y,bbox.max.z));
-  const size = new THREE.Vector3(); box.getSize(size);
-  const center = new THREE.Vector3(); box.getCenter(center);
-  modelGroup.position.sub(center);
+export function centerOnObject(object) {
+  // Ensure the object has a position
+  if (!object || !object.position) return;
 
-  const maxDim = Math.max(size.x, size.y, size.z);
-  const fov = camera.fov * (Math.PI/180);
-  const dist = (maxDim/2) / Math.tan(fov/2) * 1.8;
-  camera.position.set(dist, dist*0.75, dist);
-  controls.target.set(0,0,0);
-  controls.update();
+  const center = new THREE.Vector3();
+  
+  // Get the object's bounding box to center the camera correctly
+  const box = new THREE.Box3().setFromObject(object);
+  box.getCenter(center); // This gives the center point of the object
+
+  // Set the controls target to the object's center
+  controls.target.copy(center); // Update the target for orbit controls
+
+  // Adjust the camera position based on the size of the object
+  const size = new THREE.Vector3();
+  box.getSize(size); // Get the size of the object
+  const maxDim = Math.max(size.x, size.y, size.z); // Find the largest dimension
+  const fov = camera.fov * (Math.PI / 180); // Convert FOV to radians
+  const distance = (maxDim / 2) / Math.tan(fov / 2) * 1.8; // Calculate distance from object
+
+  camera.position.set(center.x + distance, center.y + distance * 0.75, center.z + distance); // Set camera position
+
+  controls.update(); // Update controls
 }
 
 // ⬇️ New: safe snapshot helper (waits 1 frame to ensure pixels are drawn)
