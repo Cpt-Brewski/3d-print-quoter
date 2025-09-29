@@ -9,7 +9,7 @@ export function price({ tech, layer, post, turnaround, qty, volume_mm3, infillPc
     // Adjusted layer factors for technology and layer height
     layerFactor: {
       fdm: { '0.3': 0.9, '0.2': 1.0, '0.1': 1.3 },
-      sla: { '0.3': 1.1, '0.2': 1.0, '0.1': 1.4 },
+      sla: { '0.1': 1.1, '0.05': 1.0, '0.025': 1.4 },
       sls: { '0.3': 1.0, '0.2': 1.0, '0.1': 1.2 }
     },
     infillFactor(p) { return Math.max(0.3, (p / 100) * 0.6 + 0.4); },
