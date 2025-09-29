@@ -21,7 +21,7 @@ export function price({ tech, layer, post, turnaround, qty, volume_mm3, infillPc
       assembly: 10.0,    // Assembly cost (new option)
       texturing: 6.0,     // Texturing cost (new option)
       smoothing: 8.0,     // Vapour smoothing (set the cost here)
-      "Sand and prime": 7.5 // Combined Sanding + Priming cost
+      "Sanding and Priming": 7.5 // Combined Sanding + Priming cost
     },
     turnaround: { standard: 1.0, express: 1.15, rush: 1.35 },
     minPerUnit: 4.0
