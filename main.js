@@ -436,10 +436,15 @@ async function sendQuoteEmail(){
     `Thanks!`
   ];
 
-  const mailto = new URL(`mailto:${andrewweston@me.com}`);
-  mailto.searchParams.set('cc', customer.email || '');
-  mailto.searchParams.set('subject', subject);
-  mailto.searchParams.set('body', lines.join('\n'));
+  const mailto = new URL('mailto:your-email@example.com');
+mailto.searchParams.set('cc', customer.email || '');
+mailto.searchParams.set('subject', 'Test subject');
+mailto.searchParams.set('body', 'Test body content.');
+
+const link = document.createElement('a');
+link.href = mailto.toString();
+link.target = '_blank'; // Open in a new tab
+link.click();
 
   // Open the user's email client with To + CC + Subject + Body prefilled
   window.location.href = mailto.toString();
