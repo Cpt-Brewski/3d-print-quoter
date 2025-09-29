@@ -13,8 +13,14 @@ export function price({ tech, layer, post, turnaround, qty, volume_mm3, infillPc
       sls: { '0.15': 1.0, '0.1': 1.0, '0.08': 1.2 }
     },
     infillFactor(p) { return Math.max(0.3, (p / 100) * 0.6 + 0.4); },
-     // New post-processing options added here
-    postProcess: {none: 0, sanding: 5.0, priming: 2.5, painting: 7.0, assembly: 10.0, texturing: 6.0   
+    // New post-processing options added here
+    postProcess: {
+      none: 0,           // No post-processing
+      sanding: 5.0,      // Sanding cost
+      priming: 2.5,      // Priming cost
+      painting: 7.0,     // Painting cost (new option)
+      assembly: 10.0,    // Assembly cost (new option)
+      texturing: 6.0     // Texturing cost (new option)
     },
     turnaround: { standard: 1.0, express: 1.15, rush: 1.35 },
     minPerUnit: 4.0
@@ -32,15 +38,18 @@ export function price({ tech, layer, post, turnaround, qty, volume_mm3, infillPc
   const material = vol_cm3 * cfg.material * infillK;
   const machine = hours * cfg.hourly;
 
+  // Ensure that post-processing is valid and has a cost value, if not default to 0
+  const postProcessingCost = PRICING.postProcess[post] !== undefined ? PRICING.postProcess[post] : 0;
+
   // Calculate per unit price, including post-processing and turnaround adjustment
   let perUnit = Math.max(PRICING.baseSetup + material + machine, PRICING.minPerUnit);
-  perUnit += PRICING.postProcess[post] || 0;
-  perUnit *= PRICING.turnaround[turnaround] || 1.0;
+  perUnit += postProcessingCost;  // Add post-processing cost
+  perUnit *= PRICING.turnaround[turnaround] || 1.0;  // Adjust for turnaround time
 
   return {
     hours, material, machine,
     setup: PRICING.baseSetup,
-    finishing: PRICING.postProcess[post] || 0,
+    finishing: postProcessingCost,
     perUnit, total: perUnit * qty
   };
 }
