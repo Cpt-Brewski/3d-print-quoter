@@ -15,7 +15,7 @@ export function initViewer(root){
   renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(root.clientWidth, root.clientHeight);
-  renderer.setClearColor(0xffffff, 1); // white background
+  renderer.setClearColor(0x808080, 1); // white background
   root.appendChild(renderer.domElement);
 
   controls = new OrbitControls(camera, renderer.domElement);
