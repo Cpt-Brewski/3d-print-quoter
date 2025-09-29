@@ -62,6 +62,20 @@ export function loadGeometryIntoScene(geomPayload){
 }
 
 // Keep your existing centerAndFrame(...)
+export function centerAndFrame(bbox){
+  const box = new THREE.Box3(new THREE.Vector3(bbox.min.x,bbox.min.y,bbox.min.z), new THREE.Vector3(bbox.max.x,bbox.max.y,bbox.max.z));
+  const size = new THREE.Vector3(); box.getSize(size);
+  const center = new THREE.Vector3(); box.getCenter(center);
+  modelGroup.position.sub(center);
+
+  const maxDim = Math.max(size.x, size.y, size.z);
+  const fov = camera.fov * (Math.PI/180);
+  const dist = (maxDim/2) / Math.tan(fov/2) * 1.8;
+  camera.position.set(dist, dist*0.75, dist);
+  controls.target.set(0,0,0);
+  controls.update();
+}
+
 export function centerOnObject(object) {
   // Ensure the object has a position
   if (!object || !object.position) return;
