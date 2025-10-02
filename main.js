@@ -31,6 +31,15 @@ const state = {
   }
 };
 
+// near the top
+let lastMetrics = null;
+let lastQuote = null;
+
+const state = {
+  // ...existing...
+  fileRef: null
+};
+
 /* ------------------------ UI BINDINGS ------------------------ */
 function bindUI(){
   ['techSel','layerSel','postSel','turnSel','qtyInput','infillInput'].forEach(id=>{
@@ -78,7 +87,10 @@ function onUIChange(){
   
   // Update the layer options if the technology is changed
   updateLayerOptions();
-
+  
+  // inside handleFile(file)
+  state.fileRef = file;
+ 
   // Recompute the pricing
   recompute();
 }
@@ -322,9 +334,11 @@ function showCustomerModal(){
       <div class="wa-footer">
         <button class="wa-btn wa-secondary" id="waCancel">Cancel</button>
         <button class="wa-btn wa-primary" id="waContinue">Continue to PDF</button>
+        <button id="wa-order-btn" class="wa-btn">Order</button>
       </div>
     </div>
   `;
+
 
   injectModalStyles();
   document.body.appendChild(overlay);
@@ -369,7 +383,17 @@ function showCustomerModal(){
     state.saveCustomer = !!e.target.checked;
     if(state.saveCustomer) saveCustomerToStorage(); else localStorage.removeItem('wa_customer_v1');
   });
-
+  
+    overlay.querySelector('#wa-order-btn').addEventListener('click', async ()=>{
+    try {
+      await sendToWix();
+      // optional: close overlay or redirect user
+      window.location.assign('/cart'); // or '/checkout'
+    } catch (e) {
+      alert('Could not start Wix order: ' + (e?.message || e));
+    }
+  });
+  
   // Continue to PDF
   q('#waContinue').addEventListener('click', ()=>{
     if(!state.customer.name){
@@ -662,6 +686,65 @@ function injectPrintStyles(){
   document.head.appendChild(style);
 }
 
+async function sendToWix(){
+  if(!state.fileRef || !lastQuote || !lastMetrics){
+    throw new Error('Missing file/quote/metrics');
+  }
+
+  // Snapshot for the order line item “notes”
+  const snapshotDataUrl = await getSnapshot();
+
+  // 1) Ask Wix backend for a temporary upload URL (safer + avoids CORS headaches)
+  const meta = {
+    fileName: state.fileRef.name,
+    mimeType: state.fileRef.type || 'application/octet-stream',
+    folder: '/quotes/uploads', // change if you want another folder
+  };
+  const getUrlRes = await fetch('/_functions/getUploadUrl', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(meta)
+  });
+  if(!getUrlRes.ok) throw new Error('getUploadUrl failed');
+  const { uploadUrl, fileDescriptor } = await getUrlRes.json();
+
+  // 2) Upload the file binary *directly* to Wix Media’s signed URL
+  const putRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': meta.mimeType },
+    body: state.fileRef
+  });
+  if(!putRes.ok) throw new Error('Media upload failed');
+
+  // 3) Send the cart request with quote details and the uploaded file descriptor
+  const payload = {
+    catalogProductId: '364215376135191',
+    qty: state.qty,
+    pricePerUnit: Number(lastQuote.perUnit.toFixed(2)),
+    grandTotal: Number((lastQuote.total).toFixed(2)),
+    technology: state.tech,
+    layer: state.layer,
+    post: state.post,
+    turnaround: state.turnaround,
+    infillPct: state.infillPct,
+    metrics: {
+      volume_mm3: lastMetrics.volume_mm3,
+      area_mm2: lastMetrics.area_mm2,
+      bbox: lastMetrics.bbox
+    },
+    customer: state.customer,
+    snapshotDataUrl,
+    uploadedFile: fileDescriptor   // this is what Wix backend will turn into a Media URL
+  };
+
+  const addRes = await fetch('/_functions/addToCart', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  if(!addRes.ok) throw new Error('addToCart failed');
+  return addRes.json();
+}
 
 /* ------------------------ INIT ------------------------ */
 initViewer(document.getElementById('viewerRoot'));
