@@ -1,13 +1,14 @@
-// main.js
 import { initViewer, loadGeometryIntoScene, centerAndFrame, setSize, getSnapshot } from './viewer.js';
 import { price } from './pricing.js';
 import { formatMetrics } from './metrics.js';
 import { ThreeMFLoader } from 'https://esm.sh/three@0.160.0/examples/jsm/loaders/3MFLoader.js';
 
+// ------------------------ UTIL ------------------------
 const el = sel => document.querySelector(sel);
 const fmt = n => `£${Number(n).toFixed(2)}`;
 const STORAGE_KEY = 'wa_customer_v1';
 
+// ------------------------ GLOBALS ------------------------
 let lastMetrics = null;
 let lastQuote = null;
 
@@ -28,16 +29,8 @@ const state = {
     city: '',
     postcode: '',
     country: 'UK'
-  }
-};
-
-// near the top
-let lastMetrics = null;
-let lastQuote = null;
-
-const state = {
-  // ...existing...
-  fileRef: null
+  },
+  fileRef: null // set when a model is uploaded
 };
 
 /* ------------------------ UI BINDINGS ------------------------ */
@@ -79,18 +72,15 @@ function bindUI(){
 /* ------------------------ STATE HANDLERS ------------------------ */
 function onUIChange(){
   state.tech = el('#techSel').value;
-  state.layer = el('#layerSel').value; // Capture the selected layer height
+  state.layer = el('#layerSel').value; // selected layer height
   state.post = el('#postSel').value;
   state.turnaround = el('#turnSel').value;
   state.qty = Math.max(1, +el('#qtyInput').value || 1);
   state.infillPct = Math.min(100, Math.max(0, +el('#infillInput').value || 0));
-  
+
   // Update the layer options if the technology is changed
   updateLayerOptions();
-  
-  // inside handleFile(file)
-  state.fileRef = file;
- 
+
   // Recompute the pricing
   recompute();
 }
@@ -98,8 +88,10 @@ function onUIChange(){
 /* ------------------------ DYNAMIC LAYER HEIGHT OPTIONS ------------------------ */
 function updateLayerOptions() {
   const layerSel = el('#layerSel');
-  layerSel.innerHTML = ''; // Clear the current options
-  
+  if(!layerSel) return;
+  const prev = state.layer;
+  layerSel.innerHTML = '';
+
   // Define the layer height options for each technology
   const layerOptions = {
     fdm: [
@@ -119,27 +111,20 @@ function updateLayerOptions() {
     ]
   };
 
-  // Get the technology selected by the user
-  const selectedTech = state.tech || 'fdm'; // Default to 'fdm' if nothing is selected
-
-  // Add the appropriate layer height options based on selected technology
-  layerOptions[selectedTech].forEach(option => {
+  const opts = layerOptions[state.tech] || layerOptions.fdm;
+  for(const o of opts){
     const opt = document.createElement('option');
-    opt.value = option.value;
-    opt.textContent = option.label;
+    opt.value = o.value; opt.textContent = o.label;
     layerSel.appendChild(opt);
-  });
-
-  // Re-select the currently selected layer height, if possible
-  if (!layerSel.querySelector(`[value="${state.layer}"]`)) {
-    state.layer = layerOptions[selectedTech][0].value; // Default to the first option if the previous value is not available
   }
-  layerSel.value = state.layer; // Update the selected value in the dropdown
+
+  // Re-select previously chosen layer if still valid, else first option
+  layerSel.value = opts.some(o=>o.value===prev) ? prev : opts[0].value;
+  state.layer = layerSel.value;
 }
 
-
 function resetAll(){
-  lastMetrics = null; lastQuote = null;
+  lastMetrics = null; lastQuote = null; state.fileRef = null;
   el('#fileInput').value = '';
   el('#fileName').textContent = 'No file';
   el('#statusText').textContent = 'Upload a model to preview & quote.';
@@ -148,7 +133,8 @@ function resetAll(){
 }
 
 function countdown(seconds=3){
-  const cd = el('#countdown'); cd.style.display = 'flex'; cd.textContent = seconds;
+  const cd = el('#countdown'); if(!cd) return;
+  cd.style.display = 'flex'; cd.textContent = seconds;
   let rem = seconds;
   const timer = setInterval(()=>{
     rem--;
@@ -173,6 +159,9 @@ function bboxFromGeomPayload(geomPayload){
 }
 
 async function handleFile(file){
+  // Keep a reference to the uploaded file for the Wix upload step
+  state.fileRef = file;
+
   const name = file.name || 'model';
   const ext = (name.split('.').pop() || '').toLowerCase();
   if(!['stl','3mf'].includes(ext)) { alert('Please upload an .stl or .3mf file'); return; }
@@ -339,7 +328,6 @@ function showCustomerModal(){
     </div>
   `;
 
-
   injectModalStyles();
   document.body.appendChild(overlay);
 
@@ -360,7 +348,7 @@ function showCustomerModal(){
   q('#waCancel').addEventListener('click', close);
   overlay.addEventListener('click', (e)=>{ if(e.target === overlay) close(); });
   q('#waClear').addEventListener('click', ()=>{
-    localStorage.removeItem('wa_customer_v1');
+    localStorage.removeItem(STORAGE_KEY);
     alert('Saved customer details cleared from this device.');
   });
 
@@ -381,19 +369,19 @@ function showCustomerModal(){
   });
   q('#waSave').addEventListener('change', e=>{
     state.saveCustomer = !!e.target.checked;
-    if(state.saveCustomer) saveCustomerToStorage(); else localStorage.removeItem('wa_customer_v1');
+    if(state.saveCustomer) saveCustomerToStorage(); else localStorage.removeItem(STORAGE_KEY);
   });
-  
-    overlay.querySelector('#wa-order-btn').addEventListener('click', async ()=>{
+
+  // Order from modal
+  overlay.querySelector('#wa-order-btn').addEventListener('click', async ()=>{
     try {
       await sendToWix();
-      // optional: close overlay or redirect user
       window.location.assign('/cart'); // or '/checkout'
     } catch (e) {
       alert('Could not start Wix order: ' + (e?.message || e));
     }
   });
-  
+
   // Continue to PDF
   q('#waContinue').addEventListener('click', ()=>{
     if(!state.customer.name){
@@ -407,7 +395,6 @@ function showCustomerModal(){
   // focus first input
   setTimeout(()=> q('#waName').focus(), 0);
 }
-
 
 /* Modal styles (scoped) */
 function injectModalStyles(){
@@ -461,7 +448,6 @@ function injectModalStyles(){
   `;
   document.head.appendChild(style);
 }
-
 
 /* ------------------------ PDF BUILDER ------------------------ */
 async function openQuotePdf(){
@@ -627,6 +613,7 @@ function showPrintOverlay(html){
       <div class="wa-print-footer">
         <button id="wa-print-btn" class="wa-btn">Print</button>
         <a id="wa-open-tab" class="wa-link" href="${url}" target="_blank" rel="noopener">Open in new tab</a>
+        <button id="wa-order-btn" class="wa-btn">Order</button>
       </div>
     </div>
   `;
@@ -642,13 +629,23 @@ function showPrintOverlay(html){
   overlay.querySelector('.wa-x').addEventListener('click', close);
   overlay.querySelector('.wa-print-backdrop').addEventListener('click', close);
 
-  // User-gesture Print button (most reliable)
+  // Print button (user gesture)
   overlay.querySelector('#wa-print-btn').addEventListener('click', ()=>{
     try{
       frame.contentWindow.focus();
       frame.contentWindow.print();
     }catch(e){
       alert('Print dialog could not be opened automatically. Use "Open in new tab" and print there.');
+    }
+  });
+
+  // Order button in the print overlay
+  overlay.querySelector('#wa-order-btn').addEventListener('click', async ()=>{
+    try{
+      await sendToWix();
+      window.location.assign('/cart'); // or '/checkout'
+    }catch(e){
+      alert('Could not start Wix order: ' + (e?.message || e));
     }
   });
 }
@@ -686,12 +683,13 @@ function injectPrintStyles(){
   document.head.appendChild(style);
 }
 
+/* ------------------------ WIX BRIDGE ------------------------ */
 async function sendToWix(){
   if(!state.fileRef || !lastQuote || !lastMetrics){
     throw new Error('Missing file/quote/metrics');
   }
 
-  // Snapshot for the order line item “notes”
+  // Snapshot for the order line item notes
   const snapshotDataUrl = await getSnapshot();
 
   // 1) Ask Wix backend for a temporary upload URL (safer + avoids CORS headaches)
@@ -718,7 +716,7 @@ async function sendToWix(){
 
   // 3) Send the cart request with quote details and the uploaded file descriptor
   const payload = {
-    catalogProductId: '364215376135191',
+    catalogProductId: '364215376135191', // parent product id (Wix Stores)
     qty: state.qty,
     pricePerUnit: Number(lastQuote.perUnit.toFixed(2)),
     grandTotal: Number((lastQuote.total).toFixed(2)),
@@ -734,7 +732,7 @@ async function sendToWix(){
     },
     customer: state.customer,
     snapshotDataUrl,
-    uploadedFile: fileDescriptor   // this is what Wix backend will turn into a Media URL
+    uploadedFile: fileDescriptor   // Wix backend will attach/serialize this
   };
 
   const addRes = await fetch('/_functions/addToCart', {
